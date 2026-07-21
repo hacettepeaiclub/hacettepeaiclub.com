@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 
 from database import get_session
 from models import Project
@@ -26,14 +26,15 @@ async def create_project(project: Project, session: AsyncSession = Depends(get_s
 async def get_projects(
     session: AsyncSession = Depends(get_session),
     skip: int = Query(0, description="Atlanacak kayıt sayısı"),
-    limit: int = Query(10, le=100, description="Getirilecek maksimum kayıt sayısı")
+    limit: Optional[int] = Query(None, le=100,
+                                  description="Getirilecek maksimum kayıt sayısı (Boş bırakılırsa tüm listeyi döner)")
 ):
-    result = await session.execute(
-        select(Project)
-        .order_by(Project.id.desc())
-        .offset(skip)
-        .limit(limit)
-    )
+    query = select(Project).order_by(Project.id.desc()).offset(skip)
+
+    if limit is not None:
+        query = query.limit(limit)
+
+    result = await session.execute(query)
     return result.scalars().all()
 # 3. Tek Bir Projeyi ID ile Getirme (GET)
 @router.get("/{project_id}", response_model=Project)

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 
 from database import get_session
 from models import Event
@@ -47,16 +47,17 @@ async def create_event(
 async def get_events(
     session: AsyncSession = Depends(get_session),
     skip: int = Query(0, description="Atlanacak kayıt sayısı (Örn: 2. sayfa için 10)"),
-    limit: int = Query(10, le=100, description="Getirilecek maksimum kayıt sayısı (Maks: 100)")
+    limit: Optional[int] = Query(None, le=100,
+                                  description="Getirilecek maksimum kayıt sayısı (Boş bırakılırsa tüm listeyi döner)")
 ):
     # offset(skip): Belirtilen sayı kadar kaydı atlar
     # limit(limit): Kalan kayıtlardan belirtilen sayı kadarını getirir
-    result = await session.execute(
-        select(Event)
-        .order_by(Event.date.desc())  # En yeni etkinlikler önce gelsin
-        .offset(skip)
-        .limit(limit)
-    )
+    query = select(Event).order_by(Event.date.desc()).offset(skip)  # En yeni etkinlikler önce gelsin
+
+    if limit is not None:
+        query = query.limit(limit)
+
+    result = await session.execute(query)
     events = result.scalars().all()
     return events
 

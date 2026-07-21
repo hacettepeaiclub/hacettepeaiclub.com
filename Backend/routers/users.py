@@ -80,24 +80,3 @@ async def delete_admin(
     await session.delete(user_to_delete)
     await session.commit()
     return None
-
-
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_admin(
-        user_id: int,
-        session: AsyncSession = Depends(get_session),
-        current_user: str = Depends(get_current_user)
-):
-    result = await session.execute(select(User).where(User.id == user_id))
-    user_to_delete = result.scalars().first()
-
-    if not user_to_delete:
-        raise HTTPException(status_code=404, detail="Admin bulunamadı.")
-
-    # Kendi kendini silmeyi engelleme
-    if user_to_delete.email == current_user:
-        raise HTTPException(status_code=400, detail="Kendi admin hesabınızı silemezsiniz.")
-
-    await session.delete(user_to_delete)
-    await session.commit()
-    return None

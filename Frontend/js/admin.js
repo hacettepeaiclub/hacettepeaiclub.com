@@ -410,52 +410,11 @@ function removeAdminButtons() {
   document.querySelectorAll('.admin-inline-form').forEach(f => f.remove());
 }
 
-function openEventForm() {
-  if (document.querySelector('.admin-event-form')) return;
 
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-event-form';
-  form.innerHTML = `
-    <h4>Yeni Etkinlik Ekle</h4>
-    <label>Etkinlik Adı *<input type="text" id="event-name" required /></label>
-    
-    <!-- YENİ: Slider'da görünecek açıklama metni alanı -->
-    <label>Açıklama (Slider'da Görünecek) *<textarea id="event-desc" rows="3" required></textarea></label>
-    
-    <label>Tarih *<input type="date" id="event-date" required /></label>
-    <label>Konum *<input type="text" id="event-location" required /></label>
-    <label>Tür
-      <select id="event-type">
-        <option value="Etkinlik">Etkinlik (Aynı zamanda Slider'a da ekler)</option>
-        <option value="Yarışma">Yarışma</option>
-        <option value="Eğitim">Eğitim</option>
-        <option value="Party">Party</option>
-      </select>
-    </label>
-    <div class="admin-form-actions">
-      <button type="button" id="event-submit-btn" class="admin-btn">Ekle</button>
-      <button type="button" id="event-cancel-btn" class="admin-btn admin-btn--secondary">İptal</button>
-    </div>
-  `;
-
-  const addBtn = document.querySelector('.admin-add-event-btn');
-  addBtn?.parentNode?.insertBefore(form, addBtn.nextSibling);
-
-  document.getElementById('event-submit-btn')?.addEventListener('click', () => {
-    const title = document.getElementById('event-name')?.value.trim();
-    const description = document.getElementById('event-desc')?.value.trim();
-    const date = document.getElementById('event-date')?.value;
-    const location = document.getElementById('event-location')?.value.trim();
-    const event_type = document.getElementById('event-type')?.value;
-
-    if (!title || !description || !date || !location) return alert('Lütfen tüm zorunlu alanları doldurun.');
-
-    addCalendarEvent({ title, description, date, location, event_type });
-    form.remove();
-  });
-
-  document.getElementById('event-cancel-btn')?.addEventListener('click', () => form.remove());
-}
+// NOT: openEventForm() bu dosyanın altında (satır ~1513 civarı) tekrar
+// tanımlanıyor ve JS'te ge fonksiyon deklarasyonları için en son tanım
+// geçerli olduğundan asıl kullanılan versiyon odur. Kafa karışıklığını
+// önlemek için buradaki eski/ölü kopya kaldırıldı.
 
 // ---------------------------------------------------------------------------
 //  Training Render & Forms

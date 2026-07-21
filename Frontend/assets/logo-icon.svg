@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 280" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 
+    Hacettepe AI Club deer/neural antler logo
+    Three parallel curved strokes per side forming antlers,
+    curving outward and upward, then converging to a V at the bottom.
+  -->
+
+  <!-- === LEFT SIDE === -->
+  <!-- Left outer antler — widest curve out and up -->
+  <path d="M100 165 C90 140, 65 115, 50 95 C38 78, 30 60, 35 38 C38 25, 45 18, 55 22" />
+  <!-- Left middle antler -->
+  <path d="M105 165 C96 142, 75 118, 62 100 C52 86, 48 70, 52 52 C55 42, 62 38, 68 42" />
+  <!-- Left inner antler -->
+  <path d="M110 165 C102 145, 85 124, 75 108 C67 96, 65 82, 70 68 C73 60, 78 57, 83 60" />
+
+  <!-- === RIGHT SIDE === -->
+  <!-- Right outer antler — widest curve out and up -->
+  <path d="M140 165 C150 140, 175 115, 190 95 C202 78, 210 60, 205 38 C202 25, 195 18, 185 22" />
+  <!-- Right middle antler -->
+  <path d="M135 165 C144 142, 165 118, 178 100 C188 86, 192 70, 188 52 C185 42, 178 38, 172 42" />
+  <!-- Right inner antler -->
+  <path d="M130 165 C138 145, 155 124, 165 108 C173 96, 175 82, 170 68 C167 60, 162 57, 157 60" />
+
+  <!-- === CONVERGING V-BODY (bottom) === -->
+  <!-- Left strands flowing down to center point -->
+  <path d="M100 165 C105 185, 112 210, 120 245" />
+  <path d="M105 165 C109 185, 115 208, 120 240" />
+  <path d="M110 165 C113 183, 117 205, 120 235" />
+
+  <!-- Right strands flowing down to center point -->
+  <path d="M140 165 C135 185, 128 210, 120 245" />
+  <path d="M135 165 C131 185, 125 208, 120 240" />
+  <path d="M130 165 C127 183, 123 205, 120 235" />
+
+  <!-- === DOTS at antler tips (neural / circuit nodes) === -->
+  <circle cx="55" cy="20" r="4" fill="#ffffff" stroke="none" />
+  <circle cx="68" cy="40" r="3.5" fill="#ffffff" stroke="none" />
+  <circle cx="83" cy="58" r="3" fill="#ffffff" stroke="none" />
+
+  <circle cx="185" cy="20" r="4" fill="#ffffff" stroke="none" />
+  <circle cx="172" cy="40" r="3.5" fill="#ffffff" stroke="none" />
+  <circle cx="157" cy="58" r="3" fill="#ffffff" stroke="none" />
+</svg>

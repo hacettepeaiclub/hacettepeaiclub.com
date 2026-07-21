@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: ai_club_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 150507  # .env dosyasındaki şifren
+      POSTGRES_DB: hacettepe_ai_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build: .
+    container_name: ai_club_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    env_file:
+      - .env
+    volumes:
+      - ./static/uploads:/app/static/uploads  # Yüklenen resimlerin kaybolmaması için kalıcı bağlama
+
+volumes:
+  postgres_data:

@@ -1,0 +1,5 @@
+# İşletim Sistemi Artıkları
+.DS_Store
+
+# Büyük Medya Dosyaları (GitHub sınırı aşılmasın diye)
+assets/videos/background.mp4

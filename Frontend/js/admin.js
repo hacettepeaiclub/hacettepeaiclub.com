@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 //  Constants & Configuration
 // ---------------------------------------------------------------------------
-const API_URL = 'http://localhost:8000'; // Canlıya alınca burası sunucu IP/Domain'i olacak
+const API_URL = 'https://api.hacettepeaiclub.com'; // Canlıya alınca burası sunucu IP/Domain'i olacak
 const LS_TOKEN_KEY = 'hacettepe_ai_token';
 const LS_ADMIN_STATE = 'hacettepe_ai_admin';
 
@@ -374,7 +374,7 @@ function injectAdminButtons() {
   if (toolbarInner) {
     
     // SADECE KURUCU ADMİN (admin@hacettepeaiclub.com) İSE BUTONLARI GÖSTER
-    if (currentUserEmail === "arge_yk") {
+    if (currentUserEmail === "hacettepeyapayzeka@gmail.com") {
       
       // Yeni Admin Ekle Butonu
       if (!document.getElementById('admin-add-admin-btn')) {
@@ -591,7 +591,47 @@ async function fetchBoardMembers() {
 // EKİP ÜYELERİ (BOARD MEMBERS) İŞLEMLERİ
 // ===========================================================================
 
-// 2. Üyeleri Gruplayarak Ekrana Bas
+// 2. Yeni Üye Ekle
+async function addBoardMember(data) {
+  const token = localStorage.getItem(LS_TOKEN_KEY);
+  try {
+    const res = await fetch(`${API_URL}/board-members/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Üye eklenemedi.');
+    }
+    loadAndRenderAll();
+  } catch (error) {
+    alert("Ekip üyesi eklenirken hata oluştu: " + error.message);
+  }
+}
+
+// 3. Üye Sil
+async function deleteBoardMember(id) {
+  const token = localStorage.getItem(LS_TOKEN_KEY);
+  try {
+    const res = await fetch(`${API_URL}/board-members/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Üye silinemedi.');
+    }
+    loadAndRenderAll();
+  } catch (error) {
+    alert("Ekip üyesi silinirken hata oluştu: " + error.message);
+  }
+}
+
+// 4. Üyeleri Gruplayarak Ekrana Bas
 function renderBoardMembers(members) {
   const container = document.getElementById('team-dynamic');
   if (!container) return;

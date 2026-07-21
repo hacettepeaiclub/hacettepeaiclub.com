@@ -85,10 +85,15 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Frontend'in API'ye erişebilmesi için izin verilen adresler
+#origins = [
+#    "http://localhost:3000",  # React / Next.js
+#    "http://localhost:5173",  # Vite
+#    "*"                       # Geliştirme aşamasında her şeye izin ver
+#]
+
 origins = [
-    "http://localhost:3000",  # React / Next.js
-    "http://localhost:5173",  # Vite
-    "*"                       # Geliştirme aşamasında her şeye izin ver
+    "https://hacettepeaiclub.com",
+    "https://www.hacettepeaiclub.com",
 ]
 
 app.add_middleware(
@@ -113,4 +118,5 @@ app.include_router(uploads.router)  # <-- RESİM YÜKLEME ROTASINI BURAYA EKLED�
 
 @app.get("/")
 async def root():
-    return {"message": "Hacettepe AI Club API'a Hoş Geldiniz! Asenkron sistem tıkır tıkır çalışıyor. Maşallah!"}
+    return {"message": "Hacettepe AI Club API", "status": "online", "docs": "/docs"}
+

@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 //  Constants & Configuration
 // ---------------------------------------------------------------------------
-const API_URL = 'https://api.hacettepeaiclub.com'; // Canlıya alınca burası sunucu IP/Domain'i olacak
+const API_URL = 'http://127.0.0.1:8000'; // Canlıya alınca burası sunucu IP/Domain'i olacak
 const LS_TOKEN_KEY = 'hacettepe_ai_token';
 const LS_ADMIN_STATE = 'hacettepe_ai_admin';
 
@@ -372,10 +372,23 @@ function injectAdminButtons() {
 
   const toolbarInner = document.querySelector('.admin-toolbar-inner');
   if (toolbarInner) {
+
+    // --- 1. BLOĞUN DIŞI: TÜM ADMİNLERİN GÖRECEĞİ BUTON ---
+    if (!document.getElementById('admin-show-newsletter-btn')) {
+      const newsletterBtn = document.createElement('button');
+      newsletterBtn.id = 'admin-show-newsletter-btn';
+      newsletterBtn.className = 'btn-primary';
+      newsletterBtn.style.marginLeft = '15px';
+      newsletterBtn.style.padding = '5px 15px';
+      newsletterBtn.innerHTML = '<i class="fa-solid fa-list"></i> Aboneler';
+      newsletterBtn.addEventListener('click', openNewsletterListModal);
+      toolbarInner.insertBefore(newsletterBtn, document.getElementById('admin-logout'));
+    }
     
     // SADECE KURUCU ADMİN (admin@hacettepeaiclub.com) İSE BUTONLARI GÖSTER
     if (currentUserEmail === "hacettepeyapayzeka@gmail.com") {
       
+
       // Yeni Admin Ekle Butonu
       if (!document.getElementById('admin-add-admin-btn')) {
         const btn = document.createElement('button');
@@ -1006,43 +1019,48 @@ function renderAnnouncements(announcements) {
   track.innerHTML = '';
 
   if (announcements.length === 0) {
-    track.innerHTML = '<div style="color: var(--text-muted); padding: 20px;">Henüz bir duyuru eklenmemiş.</div>';
+    track.innerHTML = '<div style="color: var(--text-muted); padding: 20px; text-align:center; width:100%;">Henüz bir duyuru eklenmemiş.</div>';
     return;
   }
 
-  // Animasyon için duyuruları bir grup (wrapper) içine alıyoruz
   let groupHtml = '<div class="upcoming-group">';
 
   announcements.forEach(a => {
-    // Gizlediğimiz ekstra verileri (JSON) content içinden çıkarıyoruz
-    let details = { status: "Planlanan", icon: "fa-solid fa-star", date: "Belirtilmedi", location: "Belirtilmedi" };
+    let details = { status: "Planlanan", date: "Belirtilmedi", location: "Belirtilmedi", image_url: "" };
     try {
       if (a.content && a.content.startsWith('{')) {
-        details = JSON.parse(a.content);
+        details = { ...details, ...JSON.parse(a.content) };
       }
     } catch(e) { console.error("Duyuru detayı çözülemedi"); }
 
+    const imageHtml = details.image_url 
+        ? `<img src="${escapeHTML(details.image_url)}" alt="${escapeHTML(a.title)}">` 
+        : `<div style="font-size: 3rem; color: var(--glow);"><i class="fa-solid fa-bullhorn"></i></div>`;
+
     groupHtml += `
-      <div class="upcoming-card" style="position: relative;">
-        ${isAdmin ? `<button class="admin-delete-btn" data-id="${a.id}" title="Sil" style="position:absolute; top: 16px; right: 16px; background: rgba(239, 83, 80, 0.9); z-index: 10;">✕</button>` : ''}
-        <div class="upcoming-status">${escapeHTML(details.status)}</div>
-        <h3><i class="${escapeHTML(details.icon)}"></i> ${escapeHTML(a.title)}</h3>
-        <p>${escapeHTML(a.summary)}</p>
-        <div class="upcoming-meta">
-            <span><i class="fa-regular fa-calendar"></i> ${escapeHTML(details.date)}</span>
-            <span><i class="fa-solid fa-location-dot"></i> ${escapeHTML(details.location)}</span>
+      <div class="upcoming-card">
+        ${isAdmin ? `<button class="admin-delete-btn" data-id="${a.id}" title="Sil" style="position:absolute; top: 12px; right: 12px; background: rgba(239, 83, 80, 0.9); z-index: 10;">✕</button>` : ''}
+        
+        <div class="upcoming-image">
+            ${details.status ? `<div class="upcoming-status">${escapeHTML(details.status)}</div>` : ''}
+            ${imageHtml}
+        </div>
+        
+        <div class="upcoming-content">
+          <h3>${escapeHTML(a.title)}</h3>
+          <p>${escapeHTML(a.summary)}</p>
+          <div class="upcoming-meta">
+              <span><i class="fa-regular fa-calendar"></i> ${escapeHTML(details.date)}</span>
+              <span><i class="fa-solid fa-location-dot"></i> ${escapeHTML(details.location)}</span>
+          </div>
         </div>
       </div>
     `;
   });
 
   groupHtml += '</div>';
-
-  // CSS marquee (kayan yazı) animasyonunun kesintisiz döngü yapması için
-  // aynı grubu arka arkaya 2 kez basıyoruz!
   track.innerHTML = groupHtml + groupHtml;
 
-  // Silme Butonlarına Olay Dinleyicisi
   if (isAdmin) {
     track.querySelectorAll('.admin-delete-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
@@ -1085,7 +1103,7 @@ async function addAnnouncement(data) {
   }
 }
 
-// Admin İçin Duyuru Ekleme Formunu Aç
+// Admin İçin Yeni Tasarımlı Duyuru Ekleme Formu
 document.getElementById('admin-add-announcement-btn')?.addEventListener('click', () => {
   if (document.querySelector('.admin-announcement-form')) return;
 
@@ -1095,11 +1113,17 @@ document.getElementById('admin-add-announcement-btn')?.addEventListener('click',
   form.style.maxWidth = "800px";
   form.innerHTML = `
     <h4>Yeni Duyuru / Etkinlik Ekle</h4>
-    <label>Başlık *<input type="text" id="ann-title" placeholder="Örn: Datathon 2027" required /></label>
-    <label>Açıklama *<textarea id="ann-summary" rows="3" placeholder="Kısa etkinlik açıklaması" required></textarea></label>
+    <label>Başlık *<input type="text" id="ann-title" placeholder="Örn: Datathon 2026" required /></label>
+    <label>Açıklama (Detaylı) *<textarea id="ann-summary" rows="4" placeholder="Etkinlik açıklaması" required></textarea></label>
+    
+    <div style="background: rgba(79, 195, 247, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0;">
+        <label style="color: var(--glow);">Görsel Yükle (Üst kısımdaki siyah alana) <input type="file" id="ann-file" accept="image/*" /></label>
+        <div style="text-align: center; margin: 5px 0;">VEYA</div>
+        <label>Görsel URL <input type="text" id="ann-image" placeholder="https://..." /></label>
+    </div>
+
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px;">
-        <label>Durum <input type="text" id="ann-status" placeholder="Örn: Yakında veya Planlanan" value="Yakında" /></label>
-        <label>İkon <input type="text" id="ann-icon" placeholder="Örn: fa-solid fa-database" value="fa-solid fa-star" /></label>
+        <label>Rozet (Durum) <input type="text" id="ann-status" placeholder="Örn: Yakında" value="Yakında" /></label>
         <label>Tarih <input type="text" id="ann-date" placeholder="Örn: Aralık 2026" /></label>
         <label>Konum <input type="text" id="ann-location" placeholder="Örn: Kongre Merkezi" /></label>
     </div>
@@ -1109,21 +1133,36 @@ document.getElementById('admin-add-announcement-btn')?.addEventListener('click',
     </div>
   `;
 
-  // HATA BURADAYDI: Doğrudan Duyuru butonunun hemen üstünde açılmasını sağladık
   const addBtn = document.getElementById('admin-add-announcement-btn');
   addBtn.parentNode.insertBefore(form, addBtn);
 
-  document.getElementById('ann-submit-btn').addEventListener('click', () => {
+  document.getElementById('ann-submit-btn').addEventListener('click', async () => {
+    const submitBtn = document.getElementById('ann-submit-btn');
+    const fileInput = document.getElementById('ann-file');
+    let imageUrl = document.getElementById('ann-image').value.trim();
+
     const title = document.getElementById('ann-title').value.trim();
     const summary = document.getElementById('ann-summary').value.trim();
     
-    if (!title || !summary) return alert('Lütfen zorunlu alanları doldurun.');
+    if (!title || !summary) return alert('Lütfen Başlık ve Açıklama alanlarını doldurun.');
+
+    if (fileInput.files.length > 0) {
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Yükleniyor...';
+        submitBtn.disabled = true;
+        const uploadedUrl = await uploadImage(fileInput.files[0]);
+        if (!uploadedUrl) {
+            submitBtn.innerHTML = 'Ekle';
+            submitBtn.disabled = false;
+            return;
+        }
+        imageUrl = uploadedUrl;
+    }
 
     const details = {
         status: document.getElementById('ann-status').value.trim(),
-        icon: document.getElementById('ann-icon').value.trim(),
         date: document.getElementById('ann-date').value.trim(),
-        location: document.getElementById('ann-location').value.trim()
+        location: document.getElementById('ann-location').value.trim(),
+        image_url: imageUrl
     };
 
     const data = {
@@ -1134,12 +1173,12 @@ document.getElementById('admin-add-announcement-btn')?.addEventListener('click',
         is_active: true
     };
 
-    addAnnouncement(data);
+    await addAnnouncement(data);
     form.remove();
   });
 
   document.getElementById('ann-cancel-btn').addEventListener('click', () => form.remove());
-}); 
+});
 
 // ===========================================================================
 // İŞ BİRLİKLERİ (SPONSORS) İŞLEMLERİ
@@ -1172,25 +1211,25 @@ function renderSponsors(sponsors) {
     return;
   }
 
-  // Logolar arasına boşluk ekliyoruz
-  let groupHtml = '<div class="partners-group" style="display: flex; align-items: center; gap: 40px; padding: 20px;">';
+  // Logolar arasına daha ferah bir boşluk (gap: 60px) ekliyoruz
+  let groupHtml = '<div class="partners-group" style="display: flex; align-items: center; gap: 60px; padding: 20px;">';
 
   sponsors.forEach(s => {
     let logoHtml = '';
     
-    // 1. ADIM: Logoyu kare bir beyaz kutu içine alıp orijinal renklerini (filter: none) zorunlu kılıyoruz
-    // Arka planı beyaz (#ffffff) yerine siyah (#000000) yaptık
+    // 1. ADIM: Siyah arka planı ve sabit 120x120px kare zorunluluğunu kaldırdık.
+    // Yüksekliği sabit tutuyoruz (80px), genişlik ise (width: auto) logoya göre esneyecek.
     if (s.logo_url && s.logo_url.startsWith('fa-')) {
-      logoHtml = `<div style="width: 120px; height: 120px; background: #000000; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.5);"><i class="${escapeHTML(s.logo_url)}"></i></div>`;
+      logoHtml = `<div style="height: 80px; display: flex; align-items: center; justify-content: center; font-size: 4rem; color: var(--text-primary);"><i class="${escapeHTML(s.logo_url)}"></i></div>`;
     } else {
-      logoHtml = `<img src="${escapeHTML(s.logo_url)}" alt="${escapeHTML(s.name)}" style="width: 120px; height: 120px; object-fit: contain; background: #000000; border-radius: 16px; padding: 15px; filter: none !important; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">`;
+      logoHtml = `<img src="${escapeHTML(s.logo_url)}" alt="${escapeHTML(s.name)}" style="height: 80px; width: auto; max-width: 250px; object-fit: contain; filter: none !important;">`;
     }
 
-    // 2. ADIM: Logonun hemen altına neon mavi (var(--glow)) şirket ismini ekliyoruz
+    // 2. ADIM: Şirket isminin taşmasını engellemek için white-space: normal ve max-width ekledik
     const innerContent = `
-      <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; transition: transform 0.3s ease;">
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 16px; transition: transform 0.3s ease;">
         ${logoHtml}
-        <span style="color: var(--glow); font-size: 1.05rem; font-weight: 600; text-align: center; letter-spacing: 0.5px; white-space: nowrap;">${escapeHTML(s.name)}</span>
+        <span style="color: var(--glow); font-size: 1.05rem; font-weight: 600; text-align: center; letter-spacing: 0.5px; white-space: normal; max-width: 180px; line-height: 1.3;">${escapeHTML(s.name)}</span>
       </div>
     `;
 
@@ -1199,9 +1238,10 @@ function renderSponsors(sponsors) {
         ? `<a href="${escapeHTML(s.website_url)}" target="_blank" rel="noopener" style="text-decoration: none;">${innerContent}</a>` 
         : innerContent;
 
+    // 3. ADIM: flex-shrink: 0 ile bu kapsayıcının animasyon sırasında asla sıkışmamasını garanti ediyoruz
     groupHtml += `
-      <div class="partner-item" style="position: relative;">
-        ${isAdmin ? `<button class="admin-delete-btn" data-id="${s.id}" title="Sil" style="position:absolute; top: -10px; right: -10px; background: rgba(239, 83, 80, 0.9); z-index: 10; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px;">✕</button>` : ''}
+      <div class="partner-item" style="position: relative; flex-shrink: 0; min-width: 150px; display: flex; justify-content: center;">
+        ${isAdmin ? `<button class="admin-delete-btn" data-id="${s.id}" title="Sil" style="position:absolute; top: -15px; right: -15px; background: rgba(239, 83, 80, 0.9); z-index: 10; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px;">✕</button>` : ''}
         ${contentHtml}
       </div>
     `;
@@ -1209,7 +1249,7 @@ function renderSponsors(sponsors) {
 
   groupHtml += '</div>';
 
-  // Animasyonun kesintisiz dönmesi için HTML'i iki kere basıyoruz[cite: 2]
+  // Animasyonun kesintisiz dönmesi için HTML'i iki kere basıyoruz
   track.innerHTML = groupHtml + groupHtml;
 
   if (isAdmin) {
@@ -1544,8 +1584,8 @@ function renderCompetitions(events) {
         ${isAdmin ? `<button class="admin-delete-btn" data-id="${evt.id}" title="Sil" style="position:absolute; top: 12px; right: 12px; background: rgba(239, 83, 80, 0.9); z-index: 10;">✕</button>` : ''}
         ${imageHtml}
         <div class="project-content" style="padding: 20px; text-align: left; flex: 1;">
-          <h3 style="margin-bottom: 10px; color: #fff; font-size: 1.3rem;">${escapeHTML(evt.title)}</h3>
-          <p style="font-size: 0.95rem; line-height: 1.5; color: var(--text-muted);">${escapeHTML(evt.description)}</p>
+          <h3 style="margin-bottom: 10px; color: var(--text-primary); font-size: 1.3rem;">${escapeHTML(evt.title)}</h3>
+          <p style="font-size: 0.95rem; line-height: 1.5; color: var(--text-secondary);">${escapeHTML(evt.description)}</p>
         </div>
       </div>
     `;
@@ -1800,5 +1840,112 @@ async function openAdminListForm() {
 
   } catch (error) {
     container.innerHTML = '<div style="color: #ef5350;">Admin listesi yüklenemedi.</div>';
+  }
+}
+
+// ===========================================================================
+// E-BÜLTEN ABONELERİNİ LİSTELEME İŞLEMLERİ
+// ===========================================================================
+async function openNewsletterListModal() {
+  if (document.querySelector('.admin-newsletter-list-form')) return;
+
+  const form = document.createElement('div');
+  form.className = 'admin-inline-form admin-newsletter-list-form';
+  form.style.position = 'fixed';
+  form.style.top = '50%';
+  form.style.left = '50%';
+  form.style.transform = 'translate(-50%, -50%)';
+  form.style.zIndex = '10000';
+  form.style.background = 'var(--bg-card)';
+  form.style.padding = '25px';
+  form.style.borderRadius = '12px';
+  form.style.boxShadow = '0 10px 30px rgba(0,0,0,0.8)';
+  form.style.border = '1px solid var(--border-color)';
+  form.style.width = '90%';
+  form.style.maxWidth = '500px';
+  form.style.maxHeight = '70vh';
+  form.style.overflowY = 'auto';
+
+  form.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h4 style="color: var(--glow); margin: 0;"><i class="fa-solid fa-envelope-open-text"></i> Bülten Aboneleri</h4>
+        <button type="button" id="close-newsletter-list" class="admin-btn admin-btn--secondary" style="padding: 5px 10px;">✕</button>
+    </div>
+    <div id="newsletter-list-container" style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="text-align: center; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Yükleniyor...</div>
+    </div>
+  `;
+
+  document.body.appendChild(form);
+  document.getElementById('close-newsletter-list').addEventListener('click', () => form.remove());
+
+  const container = document.getElementById('newsletter-list-container');
+  const token = localStorage.getItem(LS_TOKEN_KEY);
+
+  try {
+    const res = await fetch(`${API_URL}/newsletter/`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    if (!res.ok) throw new Error("Aboneler çekilemedi");
+    const subscribers = await res.json();
+    
+    container.innerHTML = ''; 
+    
+    if(subscribers.length === 0) {
+        container.innerHTML = '<div style="text-align: center; color: var(--text-muted);">Henüz abone bulunmuyor.</div>';
+        return;
+    }
+    
+    subscribers.forEach(sub => {
+        const dateObj = new Date(sub.subscribed_at);
+        const formattedDate = dateObj.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
+
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'center';
+        row.style.background = 'rgba(255,255,255,0.05)';
+        row.style.padding = '10px 15px';
+        row.style.borderRadius = '8px';
+        
+        row.innerHTML = `
+            <div>
+                <div style="font-weight: 600; color: #fff;">${sub.email}</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">Kayıt: ${formattedDate}</div>
+            </div>
+            <button class="admin-delete-btn" title="Sil" style="background: rgba(239, 83, 80, 0.2); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: #ef5350; border: none; cursor: pointer;">✕</button>
+        `;
+
+        // Silme İşlemi Olay Dinleyicisi
+        const deleteBtn = row.querySelector('.admin-delete-btn');
+        deleteBtn.addEventListener('click', async () => {
+            if (confirm(`'${sub.email}' adresini bültenden çıkarmak istediğinize emin misiniz?`)) {
+                deleteBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; // Yükleniyor ikonu
+                try {
+                    const deleteRes = await fetch(`${API_URL}/newsletter/${sub.id}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    if (deleteRes.ok) {
+                        row.remove(); // Başarılıysa satırı ekrandan anında sil
+                    } else {
+                        const err = await deleteRes.json();
+                        alert("Silinemedi: " + (err.detail || "Bilinmeyen hata"));
+                        deleteBtn.innerHTML = '✕';
+                    }
+                } catch (e) {
+                    alert("Sunucuyla bağlantı koptu veya bir hata oluştu.");
+                    deleteBtn.innerHTML = '✕';
+                }
+            }
+        });
+
+        container.appendChild(row);
+    });
+
+  } catch (error) {
+    container.innerHTML = '<div style="color: #ef5350;">Aboneler yüklenemedi. Yetkiniz olmayabilir.</div>';
   }
 }

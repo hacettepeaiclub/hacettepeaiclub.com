@@ -1,4 +1,4 @@
-from routers import events, projects, sponsors, settings, board_members, announcements, auth, users, uploads  # <-- BURAYA uploads EKLEDİK
+from routers import events, projects, sponsors, settings, board_members, announcements, auth, users, uploads, newsletter  # <-- BURAYA uploads EKLEDİK
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from sqlmodel import SQLModel
@@ -16,10 +16,10 @@ from slowapi import _rate_limit_exceeded_handler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # print("Veritabanı tabloları kontrol ediliyor/oluşturuluyor...")
-    # async with engine.begin() as conn:
-    #     await conn.run_sync(SQLModel.metadata.create_all)
-    # print("Tablolar hazır!")
+    print("Veritabanı tabloları kontrol ediliyor/oluşturuluyor...")
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+    print("Tablolar hazır!")
     yield
     print("Uygulama kapanıyor...")
 
@@ -94,6 +94,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 origins = [
     "https://hacettepeaiclub.com",
     "https://www.hacettepeaiclub.com",
+    "http://127.0.0.1:5500",  # Senin VS Code Live Server adresin
+    "http://localhost:5500"   # Alternatif adres
 ]
 
 app.add_middleware(
@@ -115,6 +117,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 
 app.include_router(uploads.router)  # <-- RESİM YÜKLEME ROTASINI BURAYA EKLEDİK
+app.include_router(newsletter.router)
 
 @app.get("/")
 async def root():

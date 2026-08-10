@@ -477,3 +477,91 @@ document.addEventListener('DOMContentLoaded', () => {
 
     console.log('🤖 Hacettepe AI Club website initialized successfully!');
 });
+
+// ==========================================
+// E-BÜLTEN (NEWSLETTER) İŞLEMLERİ
+// ==========================================
+document.addEventListener('DOMContentLoaded', () => {
+    const newsletterBtn = document.getElementById('nav-newsletter-btn');
+    const newsletterModal = document.getElementById('newsletter-modal');
+    const closeNewsletterBtn = document.getElementById('close-newsletter-modal');
+    const newsletterSubmit = document.getElementById('newsletter-submit-btn');
+    const newsletterEmail = document.getElementById('newsletter-email');
+    const newsletterMessage = document.getElementById('newsletter-message');
+
+    // Modalı Aç
+    if (newsletterBtn && newsletterModal) {
+        newsletterBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            newsletterModal.classList.add('active'); // active sınıfı ile CSS geçişini tetikliyoruz
+            document.body.classList.add('modal-open'); // Arkadaki sayfanın kaymasını engeller
+            newsletterMessage.textContent = '';
+            if(newsletterEmail) newsletterEmail.value = '';
+        });
+    }
+
+    // Modalı Kapat
+    if (closeNewsletterBtn && newsletterModal) {
+        closeNewsletterBtn.addEventListener('click', () => {
+            newsletterModal.classList.remove('active');
+            document.body.classList.remove('modal-open');
+        });
+    }
+
+    // Dışarı tıklayınca kapat
+    window.addEventListener('click', (e) => {
+        if (e.target === newsletterModal) {
+            newsletterModal.classList.remove('active');
+            document.body.classList.remove('modal-open');
+        }
+    });
+
+    // Abone Ol Butonuna Tıklama
+    if (newsletterSubmit) {
+        newsletterSubmit.addEventListener('click', async () => {
+            const email = newsletterEmail.value.trim();
+            
+            // Basit e-posta formatı kontrolü
+            if (!email || !email.includes('@') || !email.includes('.')) {
+                newsletterMessage.style.color = '#ef5350'; 
+                newsletterMessage.textContent = 'Lütfen geçerli bir e-posta adresi girin.';
+                return;
+            }
+
+            // Butonu yükleniyor durumuna al
+            newsletterSubmit.disabled = true;
+            newsletterSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> İşleniyor...';
+
+            try {
+                const res = await fetch(`${API_URL}/newsletter/subscribe`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: email })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    newsletterMessage.style.color = '#66bb6a'; 
+                    newsletterMessage.textContent = data.message || 'Başarıyla abone oldunuz!';
+                    newsletterEmail.value = '';
+                    
+                    // 2 saniye sonra pencereyi otomatik kapat
+                    setTimeout(() => { 
+                        newsletterModal.classList.remove('active'); 
+                        document.body.classList.remove('modal-open');
+                    }, 2000);
+                } else {
+                    newsletterMessage.style.color = '#ef5350';
+                    newsletterMessage.textContent = data.detail || 'Bir hata oluştu.';
+                }
+            } catch (err) {
+                newsletterMessage.style.color = '#ef5350';
+                newsletterMessage.textContent = 'Sunucuya bağlanılamadı. Lütfen daha sonra tekrar deneyin.';
+            } finally {
+                newsletterSubmit.disabled = false;
+                newsletterSubmit.textContent = 'Abone Ol';
+            }
+        });
+    }
+});

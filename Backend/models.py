@@ -81,3 +81,8 @@ class ContactMessage(SQLModel, table=True):
     email: str
     message: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class NewsletterSubscriber(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True)
+    subscribed_at: datetime = Field(default_factory=datetime.now)

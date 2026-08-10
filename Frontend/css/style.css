@@ -4012,81 +4012,103 @@ body.admin-mode .admin-only-td {
   }
 }
 
+  /* --- Duyuru Kartı Ana Yapısı --- */
+/* --- Duyurular - Yeni Resimli Tasarım --- */
 .upcoming-card {
   width: 380px;
   flex-shrink: 0;
   position: relative;
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: var(--bg-card); /* Lacivert arkaplan */
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  padding: 32px;
+  padding: 0; /* Padding'i sıfırladık, resim tam otursun */
   transition: all var(--transition-base);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-}
-
-.upcoming-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--glow), var(--glow-secondary));
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .upcoming-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-card-hover);
-  border-color: rgba(79, 195, 247, 0.3);
+  transform: translateY(-6px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 25px rgba(79, 195, 247, 0.2);
+  border-color: var(--glow);
+}
+
+/* Üst Kısım: Siyah Resim Alanı */
+.upcoming-image {
+  width: 100%;
+  height: 200px;
+  background: #000000;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.upcoming-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 24px;
+}
+
+/* Alt Kısım: İçerik Alanı */
+.upcoming-content {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
 .upcoming-status {
-  display: inline-block;
-  align-self: flex-start;
-  padding: 4px 14px;
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  padding: 6px 14px;
   font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--glow);
-  background: rgba(79, 195, 247, 0.08);
-  border: 1px solid rgba(79, 195, 247, 0.2);
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--glow), var(--glow-secondary));
   border-radius: var(--radius-full);
-  margin-bottom: 16px;
+  box-shadow: 0 0 10px rgba(79, 195, 247, 0.4);
+  animation: pulse-soft 2s infinite;
+  z-index: 2;
 }
 
-.upcoming-card h3 {
+.upcoming-content h3 {
   font-family: var(--font-heading);
-  font-size: 1.2rem;
-  font-weight: 600;
+  font-size: 1.3rem;
+  font-weight: 700;
   margin-bottom: 12px;
+  color: var(--text-primary); /* AÇIK MODDA SİYAHA DÖNER */
 }
 
-.upcoming-card h3 i {
-  margin-right: 8px;
-  color: var(--glow);
-}
-
-.upcoming-card p {
-  font-size: 0.9rem;
+.upcoming-content p {
+  font-size: 0.95rem;
   color: var(--text-secondary);
-  line-height: 1.7;
-  margin-bottom: 16px;
+  line-height: 1.6;
+  margin-bottom: 20px;
 }
 
 .upcoming-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: var(--text-muted);
+  margin-top: auto; /* Yazı kısa olsa bile tarihi en alta iter */
 }
 
 .upcoming-meta i {
-  margin-right: 4px;
-  color: var(--glow);
+  color: var(--glow-secondary);
+  margin-right: 6px;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
 }
 
 /* --- Footer extras (HTML aliases) --- */
@@ -4513,4 +4535,45 @@ body.modal-open {
   position: absolute;
   top: 12px;
   right: 12px;
+}
+
+/* --- Bültene Katıl Butonu Navbar Renk Düzeltmesi --- */
+#nav-newsletter-btn {
+  color: var(--text-secondary);
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: color var(--transition-fast);
+  text-decoration: none;
+}
+
+#nav-newsletter-btn:hover {
+  color: var(--glow);
+}
+
+/* Açık mod (past-hero) aktifken, header koyu kaldığı için yazıyı beyaza zorluyoruz */
+body.past-hero #nav-newsletter-btn {
+  color: #ffffffc4; 
+}
+
+body.past-hero #nav-newsletter-btn:hover {
+  color: #ffffff;
+}
+
+/* --- Bülten Modalı Açık Tema (Light Theme) Renk Düzeltmesi --- */
+body.past-hero #newsletter-modal .modal-content {
+    /* Site beyaz temada olsa bile, bu kutunun içi lacivert olduğu için yazıları beyaz/açık griye sabitler */
+    --text-primary: #ffffff;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+}
+
+body.past-hero #newsletter-modal .form-input {
+    color: #ffffff;
+    background: rgba(11, 24, 51, 0.5);
+    border: 1px solid rgba(79, 195, 247, 0.3);
+}
+
+body.past-hero #newsletter-modal .form-input::placeholder {
+    color: #94a3b8;
 }

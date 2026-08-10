@@ -56,6 +56,11 @@
                     rel="noopener" class="btn-member" id="btn-member">
                     <i class="fa-solid fa-user-plus"></i> <span class="btn-text">Üye Ol</span>
                 </a>
+
+                <a href="#" class="nav-link" id="nav-newsletter-btn" style="margin-left: 15px;">
+                    <i class="fa-solid fa-envelope-open-text"></i> <span class="btn-text">Bültene Katıl</span>
+                </a>
+
                 <span class="header-separator">|</span>
                 <div id="contact-dropdown-wrapper" class="contact-dropdown-wrapper">
                     <button class="btn-contact" id="btn-contact">
@@ -112,6 +117,7 @@
             <li><a href="#hakkimizda" class="side-menu-link"><i class="fa-solid fa-info-circle"></i> Hakkımızda</a></li>
             <li><a href="#misyon-vizyon" class="side-menu-link"><i class="fa-solid fa-bullseye"></i>
                     Misyonumuz/Vizyonumuz</a></li>
+            <li><a href="#gelecek-etkinlikler" class="side-menu-link"><i class="fa-solid fa-bullhorn"></i> Duyurular</a></li>
             <li><a href="#projeler" class="side-menu-link"><i class="fa-solid fa-diagram-project"></i> Stant Projelerimiz</a>
             </li>
             <li><a href="#yarismalar" class="side-menu-link"><i class="fa-solid fa-trophy"></i> Yarışmalar</a></li>
@@ -122,6 +128,8 @@
             <li><a href="#takvim" class="side-menu-link"><i class="fa-solid fa-calendar-days"></i> Takvim</a></li>
             <li><a href="#ekip" class="side-menu-link"><i class="fa-solid fa-people-group"></i> Biz Kimiz?</a></li>
             <li><a href="#komisyonlar" class="side-menu-link"><i class="fa-solid fa-sitemap"></i> Komisyonlar</a></li>
+            <li><a href="#isbirlikleri" class="side-menu-link"><i class="fa-solid fa-handshake"></i> İş Birlikleri</a></li>
+            
         </ul>
         <div class="side-menu-footer">
             <button id="admin-trigger" class="btn-admin-login">
@@ -305,6 +313,26 @@
                         <p class="mv-main">Hacettepe Üniversitesi'nden başlayarak Türkiye'nin dört bir yanına ilham
                             veren, üretken, öncü ve sürdürülebilir bir yapay zekâ ekosistemi oluşturmak.</p>
                     </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== GELECEK ETKİNLİKLER ===== -->
+        
+        <section id="gelecek-etkinlikler" class="section section-alt">
+            <div class="container">
+                <h2 class="section-title scroll-reveal">Duyurular</h2>
+                <p class="section-subtitle scroll-reveal">Yaklaşan etkinliklerimiz ve planlarımız</p>
+                
+                <div class="upcoming-grid scroll-reveal">
+                    <div class="upcoming-track" id="announcements-dynamic-track">
+                    </div>
+                </div>
+
+                <div class="admin-only" style="display: none; text-align: center; margin-top: 30px;">
+                    <button id="admin-add-announcement-btn" class="btn-primary">
+                        <i class="fa-solid fa-plus"></i> Duyuru Ekle
+                    </button>
                 </div>
             </div>
         </section>
@@ -565,26 +593,8 @@
             </div>
         </section>
 
-        <!-- ===== GELECEK ETKİNLİKLER ===== -->
-        <!--
-        <section id="gelecek-etkinlikler" class="section section-alt">
-            <div class="container">
-                <h2 class="section-title scroll-reveal">Duyurular</h2>
-                <p class="section-subtitle scroll-reveal">Yaklaşan etkinliklerimiz ve planlarımız</p>
-                
-                <div class="upcoming-grid scroll-reveal">
-                    <div class="upcoming-track" id="announcements-dynamic-track">
-                    </div>
-                </div>
+        
 
-                <div class="admin-only" style="display: none; text-align: center; margin-top: 30px;">
-                    <button id="admin-add-announcement-btn" class="btn-primary">
-                        <i class="fa-solid fa-plus"></i> Duyuru Ekle
-                    </button>
-                </div>
-            </div>
-        </section>
-        -->
 
     </main>
 
@@ -806,6 +816,33 @@
     <button id="scroll-top" class="scroll-top" aria-label="Yukarı Çık" title="Yukarı Çık">
         <i class="fa-solid fa-chevron-up"></i>
     </button>
+
+    <!-- ========================================== -->
+    <!-- E-BÜLTEN (NEWSLETTER) MODALI               -->
+    <!-- ========================================== -->
+    <div id="newsletter-modal" class="modal-overlay">
+        <div class="modal-content modal-small">
+            <button id="close-newsletter-modal" class="modal-close" aria-label="Kapat">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            
+            <div style="text-align: center; margin-bottom: 20px;">
+                <i class="fa-solid fa-envelope-open-text" style="font-size: 3rem; color: var(--glow); margin-bottom: 10px;"></i>
+                <h2 class="modal-title">E-Bültene Abone Ol</h2>
+                <p class="modal-subtitle">Topluluğumuzdaki son etkinliklerden, hackathonlardan ve duyurulardan ilk senin haberin olsun!</p>
+            </div>
+            
+            <div class="form-group">
+                <input type="email" id="newsletter-email" class="form-input" placeholder="E-posta adresini gir..." required>
+            </div>
+            
+            <button id="newsletter-submit-btn" class="btn-primary btn-full" style="justify-content: center;">
+                Abone Ol
+            </button>
+            
+            <div id="newsletter-message" style="margin-top: 15px; font-weight: bold; text-align: center; font-size: 0.9rem;"></div>
+        </div>
+    </div>
 
     <!-- ==================== SCRIPTS ==================== -->
     <script src="js/neural-bg.js"></script>

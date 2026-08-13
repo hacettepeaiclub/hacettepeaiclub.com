@@ -453,7 +453,11 @@ class Marquee {
             ? document.getElementById(trackOrId)
             : trackOrId;
         const root = track?.closest('[data-marquee]');
-        Marquee.get(root)?.layout();
+        const instance = Marquee.get(root);
+        if (!instance) return;
+        // İçerik tamamen değiştiği için önceki ölçüm geçersiz
+        instance.signature = null;
+        instance.layout();
     }
 
     constructor(root) {
@@ -465,6 +469,10 @@ class Marquee {
             root.classList.add('is-reverse');
         }
 
+        // Son kurulumun parmak izi. Ölçüler değişmediyse DOM'a hiç dokunmayız;
+        // aksi halde her ölçümde animasyon sıfırlanır ve şerit titrer.
+        this.signature = null;
+
         this.layout = this.layout.bind(this);
 
         if (typeof ResizeObserver !== 'undefined') {
@@ -474,8 +482,8 @@ class Marquee {
             window.addEventListener('resize', () => this.scheduleLayout(), { passive: true });
         }
 
-        // Görseller (lazy yüklenenler dahil) geldikçe kart ölçüleri değişir;
-        // ölçümü yenilemezsek kaydırma mesafesi yanlış kalır.
+        // Görseller (lazy yüklenenler dahil) geldikçe kart ölçüleri değişebilir.
+        // Bu yüzden ölçümü tazeliyoruz; parmak izi aynıysa yeniden kurulum yapılmaz.
         this.root.addEventListener('load', () => this.scheduleLayout(), true);
         this.root.addEventListener('error', () => this.scheduleLayout(), true);
 
@@ -484,38 +492,62 @@ class Marquee {
 
     scheduleLayout() {
         clearTimeout(this._timer);
-        this._timer = setTimeout(this.layout, 120);
+        this._timer = setTimeout(this.layout, 150);
     }
 
-    /** Kopyaları temizleyip yalnızca orijinal elemanları bırakır. */
-    resetClones() {
-        if (!this.track) return [];
+    /** Kopya olmayan (asıl) elemanlar. */
+    getOriginals() {
+        return Array.from(this.track.children)
+            .filter(node => !node.hasAttribute('data-marquee-clone'));
+    }
+
+    /** Kurulumu sıfırlar: kopyaları ve animasyon ayarlarını temizler. */
+    teardown() {
         this.track.querySelectorAll('[data-marquee-clone]').forEach(node => node.remove());
-        return Array.from(this.track.children);
+        this.root.classList.remove('is-animating', 'is-static');
+        this.track.style.removeProperty('--marquee-shift');
+        this.track.style.removeProperty('--marquee-duration');
     }
 
     layout() {
         if (!this.track) return;
 
-        const originals = this.resetClones();
-        this.root.classList.remove('is-animating', 'is-static');
-        this.track.style.removeProperty('--marquee-shift');
-        this.track.style.removeProperty('--marquee-duration');
+        // ÖNEMLİ: Ölçüm kopyalar silinmeden yapılır.
+        // Aksi halde her çağrıda DOM değişir, bu da ResizeObserver ve görsel
+        // "load" olaylarını yeniden tetikleyip sonsuz döngüye (titreme) yol açar.
+        const originals = this.getOriginals();
+        const isAdminMode = document.body.classList.contains('admin-mode');
+        const viewportWidth = this.root.clientWidth;
+
+        // Alan henüz görünür değilse (genişlik 0) ölçüm anlamsız; sonra tekrar denenir.
+        if (viewportWidth === 0) return;
+
+        const styles = getComputedStyle(this.track);
+        const gap = parseFloat(styles.columnGap || styles.gap) || 0;
+        const groupWidth = originals.reduce(
+            (total, node) => total + node.getBoundingClientRect().width + gap,
+            0
+        );
+
+        // Ölçüler bir öncekiyle aynıysa hiçbir şeye dokunma:
+        // animasyon kaldığı yerden akmaya devam eder.
+        const signature = [
+            isAdminMode,
+            originals.length,
+            Math.round(groupWidth),
+            Math.round(viewportWidth),
+        ].join('|');
+
+        if (signature === this.signature) return;
+        this.signature = signature;
+
+        this.teardown();
 
         // İçerik yoksa yapacak bir şey de yok.
         if (originals.length === 0) return;
 
         // Admin modunda animasyon yerine elle kaydırma kullanılır: kopya üretilmez.
-        if (document.body.classList.contains('admin-mode')) return;
-
-        const styles = getComputedStyle(this.track);
-        const gap = parseFloat(styles.columnGap || styles.gap) || 0;
-
-        const groupWidth = originals.reduce(
-            (total, node) => total + node.getBoundingClientRect().width + gap,
-            0
-        );
-        const viewportWidth = this.root.clientWidth;
+        if (isAdminMode) return;
 
         // Ekrana sığıyorsa: sabit ve ortalanmış göster.
         if (groupWidth <= viewportWidth + 1 || groupWidth === 0) {

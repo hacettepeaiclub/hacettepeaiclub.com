@@ -9,28 +9,58 @@ pip install -r requirements.txt
 cp .env.example .env    # DATABASE_URL ve SECRET_KEY doldurulmalı
 ```
 
-## Veritabanı Göçleri (Migrations)
+## Sunucuda Güncelleme (Docker)
 
-Kod her güncellendiğinde, sunucuyu başlatmadan **önce** göçleri uygulayın:
+Proje Docker ile çalışır; bağımlılıklar **konteynerin içindedir**. Bu yüzden
+`alembic` komutu host makinede değil, konteyner içinde çalıştırılmalıdır.
 
 ```bash
-alembic upgrade head
+cd ~/hacettepeaiclub.com/Backend
+
+git pull
+docker compose build web          # yeni kod imaja girsin
+docker compose up -d              # konteyneri yeniden başlat
+
+docker compose exec web alembic upgrade head   # göçleri uygula
 ```
 
-> **Önemli:** `c1a7f4b9d201` numaralı göç şunları ekler:
-> - `stakeholder` tablosu (AI FEST'26 Paydaş Toplulukları)
-> - `event.end_date` — çok günlü etkinlikler için bitiş tarihi
-> - `event.order_index` ve `announcement.order_index` — admin panelinden elle sıralama
->
-> Bu göç uygulanmazsa takvimde çoklu gün ve sıralama özellikleri çalışmaz.
+> Host'ta doğrudan `alembic upgrade head` çalıştırmayın:
+> sistem Python'unda `dotenv`/`sqlmodel` kurulu değildir ve `.env` içindeki
+> `db:5432` adresi yalnızca Docker ağı içinden çözülebilir.
 
-## Çalıştırma
+### Göç sırası önemli mi?
+
+Hayır. Uygulama açılışta `SQLModel.metadata.create_all()` çalıştırdığı için
+`stakeholder` tablosu konteyner ilk başladığında zaten oluşabilir. `c1a7f4b9d201`
+göçü bu duruma karşı "varsa atla" mantığıyla yazılmıştır; hangi sırada
+çalışırsa çalışsın hata vermez.
+
+`c1a7f4b9d201` göçünün eklediği alanlar:
+
+- `stakeholder` tablosu (AI FEST'26 Paydaş Toplulukları)
+- `event.end_date` — çok günlü etkinlikler için bitiş tarihi
+- `event.order_index` ve `announcement.order_index` — admin panelinden elle sıralama
+
+Bu göç uygulanmazsa çoklu gün ve sıralama özellikleri çalışmaz.
+
+## Yerel Geliştirme (Docker'sız)
 
 ```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head
 uvicorn main:app --reload
 ```
 
 API dokümantasyonu: http://127.0.0.1:8000/docs
+
+## Sorun Giderme
+
+| Hata | Sebep | Çözüm |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'dotenv'` | Komut konteyner dışında, sistem Python'uyla çalıştırıldı | `docker compose exec web alembic upgrade head` |
+| `could not translate host name "db"` | `db` adresi yalnızca Docker ağında geçerli | Komutu konteyner içinde çalıştırın |
+| `relation "stakeholder" already exists` | Eski (idempotent olmayan) göç sürümü | Bu depodaki güncel göç dosyasını kullanın |
 
 ## Testler
 

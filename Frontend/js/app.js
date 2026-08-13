@@ -9,7 +9,7 @@
 // ==================== GLOBAL CONFIGURATION ====================
 // Canlıya alınca burası sunucu IP/Domain'i olacak.
 // app.js ilk yüklenen dosya olduğu için tüm modüller bu değeri kullanabilir.
-const API_URL = 'http://127.0.0.1:8000';
+const API_URL = 'https://api.hacettepeaiclub.com';
 
 // ==================== DOM REFERENCES ====================
 const DOM = {

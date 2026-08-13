@@ -474,6 +474,11 @@ class Marquee {
             window.addEventListener('resize', () => this.scheduleLayout(), { passive: true });
         }
 
+        // Görseller (lazy yüklenenler dahil) geldikçe kart ölçüleri değişir;
+        // ölçümü yenilemezsek kaydırma mesafesi yanlış kalır.
+        this.root.addEventListener('load', () => this.scheduleLayout(), true);
+        this.root.addEventListener('error', () => this.scheduleLayout(), true);
+
         this.layout();
     }
 

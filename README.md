@@ -187,7 +187,7 @@ docker compose exec web pytest
 3. Değişikliklerinizi commit'leyin
 4. Branch'inizi push'layın ve bir Pull Request açın
 
-Sorular ve öneriler için: **contact@hacettepeaiclub.com**
+Sorular ve öneriler için: **hacettepeyapayzeka@gmail.com**
 Geliştirenler: Metin Bera Süslü & M. Furkan Taşatan
 
 ---

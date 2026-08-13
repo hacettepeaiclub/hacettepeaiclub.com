@@ -42,7 +42,7 @@
  *  }
  * ======================================================================= */
 
-const MAILTO_ADDRESS = 'contact@hacettepeaiclub.com';
+const MAILTO_ADDRESS = 'hacettepeyapayzeka@gmail.com';
 
 // ---------------------------------------------------------------------------
 //  DOM References

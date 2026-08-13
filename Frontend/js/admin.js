@@ -909,20 +909,24 @@ function renderCompetitions(events) {
 
     const item = document.createElement('div');
     item.className = 'marquee-item';
+    // Görsel, duyuru kartlarıyla aynı yapıyı kullanır: siyah kutu yok,
+    // afiş kendi en-boy oranıyla görünür.
     item.innerHTML = `
-      <div class="project-card" style="position: relative; width: min(350px, 82vw); display: flex; flex-direction: column; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; overflow: hidden; height: 100%;">
-        ${imageUrl
-          ? `<img src="${escapeHTML(imageUrl)}" alt="${escapeHTML(evt.title)}" style="width: 100%; height: 200px; object-fit: contain; background: #000000; padding: 15px;">`
-          : `<div style="height:200px; background:#000000; display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-trophy fa-3x" style="color:var(--glow)"></i></div>`}
-        <div class="project-content" style="padding: 20px; text-align: left; flex: 1;">
-          <h3 style="margin-bottom: 10px; color: var(--text-primary); font-size: 1.3rem;">${escapeHTML(evt.title)}</h3>
-          <p style="font-size: 0.95rem; line-height: 1.5; color: var(--text-secondary);">${escapeHTML(evt.description)}</p>
+      <div class="competition-card upcoming-card">
+        <div class="upcoming-image">
+          ${imageUrl
+            ? `<img src="${escapeHTML(imageUrl)}" alt="${escapeHTML(evt.title)}" loading="lazy">`
+            : '<div class="upcoming-image-placeholder"><i class="fa-solid fa-trophy"></i></div>'}
+        </div>
+        <div class="upcoming-content">
+          <h3>${escapeHTML(evt.title)}</h3>
+          <p>${escapeHTML(evt.description)}</p>
         </div>
       </div>
     `;
 
     if (isAdmin()) {
-      item.querySelector('.project-card').appendChild(buildAdminControls({
+      item.querySelector('.competition-card').appendChild(buildAdminControls({
         onEdit: () => openCompetitionForm(evt),
         onDelete: () => confirmDelete('Bu yarışmayı silmek', `/events/${evt.id}`),
         onMoveUp: () => reorderItems(competitions, index, -1, '/events', ORDER_BASE.competition),
@@ -1007,8 +1011,8 @@ function renderAnnouncements(announcements) {
         <div class="upcoming-image">
           ${details.status ? `<div class="upcoming-status">${escapeHTML(details.status)}</div>` : ''}
           ${details.image_url
-            ? `<img src="${escapeHTML(details.image_url)}" alt="${escapeHTML(a.title)}">`
-            : `<div style="font-size: 3rem; color: var(--glow);"><i class="fa-solid fa-bullhorn"></i></div>`}
+            ? `<img src="${escapeHTML(details.image_url)}" alt="${escapeHTML(a.title)}" loading="lazy">`
+            : '<div class="upcoming-image-placeholder"><i class="fa-solid fa-bullhorn"></i></div>'}
         </div>
         <div class="upcoming-content">
           <h3>${escapeHTML(a.title)}</h3>

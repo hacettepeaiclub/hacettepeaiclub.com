@@ -3339,6 +3339,12 @@ body.admin-mode td.admin-only {
   padding: 20px 0;
 }
 
+/* Afişler kendi oranını koruduğu için kart yükseklikleri farklı olabilir;
+   dikey ortalama sıranın düzenli görünmesini sağlar. */
+.marquee-full .marquee-track {
+  align-items: center;
+}
+
 /* --- Duyuru Kartı Ana Yapısı --- */
 .upcoming-card {
   width: min(380px, 82vw);
@@ -3361,23 +3367,49 @@ body.admin-mode td.admin-only {
   border-color: var(--glow);
 }
 
-/* Üst Kısım: Siyah Resim Alanı */
+/* Üst Kısım: Görsel Alanı
+   Görsel siyah bir kareye sıkıştırılmaz. Kartın tam genişliğini kaplar ve
+   yüksekliği kendi en-boy oranına göre belirlenir; böylece dikey afişler
+   dikey, yatay görseller yatay görünür. Çok uzun afişler için üst sınır var. */
 .upcoming-image {
   width: 100%;
-  height: 200px;
-  background: #000000;
+  background: transparent;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
+  overflow: hidden;
 }
 
 .upcoming-image img {
+  display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
+  /* Yaygın afiş oranları (1:1, 4:5, 2:3) sınıra takılmadan tam görünür.
+     Yalnızca aşırı uzun görseller sınırlanır. */
+  max-height: min(600px, 70vh);
+  /* Afiş asla kırpılmaz. Sınıra dayanan görsellerde kalan boşluk kartın
+     kendi rengiyle dolar; siyah bant oluşmaz. */
   object-fit: contain;
-  padding: 24px;
+  padding: 0;
+}
+
+/* Görsel yoksa ikonun oturacağı sabit yükseklikli alan */
+.upcoming-image-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 180px;
+  font-size: 3rem;
+  color: var(--glow);
+  background: linear-gradient(135deg, rgba(79, 195, 247, 0.08), rgba(124, 77, 255, 0.06));
+}
+
+/* Yarışma kartları duyuru kartlarıyla aynı görsel yapısını kullanır */
+.competition-card {
+  width: min(350px, 82vw);
 }
 
 /* Alt Kısım: İçerik Alanı */
@@ -3671,19 +3703,18 @@ body.modal-open {
     gap: 0;
   }
 
-  
-
   .competition-grid {
     grid-template-columns: 1fr;
   }
+}
 
-  @media (max-width: 480px) {
-    .upcoming-card {
-      width: 290px;
-      padding: 24px;
-    }
+/* Küçük ekranlarda kart biraz daralır; iç boşluk verilmez ki
+   afiş kartın kenarlarına kadar uzansın. */
+@media (max-width: 480px) {
+  .upcoming-card {
+    width: min(300px, 86vw);
+    padding: 0;
   }
-
 }
 
 @media (max-width: 576px) {

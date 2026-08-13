@@ -37,6 +37,12 @@ const ORDER_BASE = {
   competition: 20000,
 };
 
+/** Sunucunun (routers/uploads.py) kabul ettiği uzantılar ile birebir aynı olmalı. */
+const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+
+/** Sunucudaki sınırla aynı: 8 MB */
+const MAX_IMAGE_SIZE_MB = 8;
+
 const TURKISH_MONTHS = {
   '01': 'Ocak', '02': 'Şubat', '03': 'Mart', '04': 'Nisan',
   '05': 'Mayıs', '06': 'Haziran', '07': 'Temmuz', '08': 'Ağustos',
@@ -190,7 +196,32 @@ function slugify(text) {
 // ---------------------------------------------------------------------------
 //  Görsel Yükleme
 // ---------------------------------------------------------------------------
+/**
+ * Dosyayı sunucuya göndermeden önce yerel olarak doğrular.
+ * @returns {string|null} Hata mesajı, sorun yoksa null
+ */
+function validateImageFile(file) {
+  const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+
+  if (!ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
+    return `"${file.name}" desteklenmiyor.\nİzin verilen formatlar: ${ALLOWED_IMAGE_EXTENSIONS.join(', ')}`;
+  }
+  if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+    return `Dosya çok büyük (${(file.size / 1024 / 1024).toFixed(1)} MB).\nEn fazla ${MAX_IMAGE_SIZE_MB} MB yükleyebilirsiniz.`;
+  }
+  if (file.size === 0) {
+    return 'Seçilen dosya boş görünüyor.';
+  }
+  return null;
+}
+
 async function uploadImage(file) {
+  const localError = validateImageFile(file);
+  if (localError) {
+    alert(localError);
+    return null;
+  }
+
   const formData = new FormData();
   formData.append('file', file);
 
@@ -202,13 +233,24 @@ async function uploadImage(file) {
       body: formData,
     });
 
-    if (!res.ok) throw new Error('Sunucu görseli kabul etmedi.');
+    if (!res.ok) {
+      // Sunucunun gerçek hata açıklamasını göster (ör. geçersiz format)
+      let detail = `Sunucu ${res.status} döndü.`;
+      try {
+        const payload = await res.json();
+        detail = payload.detail || payload.message || detail;
+      } catch (_) { /* gövde JSON değilse yoksay */ }
+      throw new Error(detail);
+    }
 
     const data = await res.json();
     // Backend "/static/uploads/resim.png" döner; tam URL'ye çeviriyoruz.
     return API_URL + data.url;
   } catch (error) {
-    alert(`Resim yüklenirken hata oluştu: ${error.message}`);
+    const message = error.name === 'TypeError'
+      ? 'Sunucuya bağlanılamadı. Backend çalışıyor mu?'
+      : error.message;
+    alert(`Resim yüklenemedi: ${message}`);
     return null;
   }
 }
@@ -406,13 +448,17 @@ function openAdminForm({ title, icon = 'fa-pen-to-square', fields, values = {}, 
 
       case 'image':
         return `<div class="admin-upload-box">
-            <label style="color: var(--glow);">${escapeHTML(field.label)} (Bilgisayardan)
-              <input type="file" data-file="${field.name}" accept="image/*" />
+            <label style="color: var(--glow);">${escapeHTML(field.label)}${required} (Bilgisayardan)
+              <input type="file" data-file="${field.name}" accept="${ALLOWED_IMAGE_EXTENSIONS.join(',')}" />
             </label>
             <div class="admin-upload-or">VEYA</div>
             <label>Görsel URL ${field.allowIcon ? '/ İkon' : ''}
               <input type="text" data-field="${field.name}" value="${escapeHTML(value)}" placeholder="${escapeHTML(field.placeholder || 'https://...')}" />
-            </label>${hint}
+            </label>
+            <div class="admin-upload-preview" data-preview="${field.name}">
+              ${value && !value.startsWith('fa-') ? `<img src="${escapeHTML(value)}" alt="">` : ''}
+              <span data-preview-label="${field.name}">${value ? 'Mevcut görsel' : ''}</span>
+            </div>${hint}
           </div>`;
 
       case 'date':
@@ -443,6 +489,44 @@ function openAdminForm({ title, icon = 'fa-pen-to-square', fields, values = {}, 
   });
   overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
 
+  /** İlgili resim alanında bilgisayardan dosya seçilmiş mi? */
+  const pickedFile = (name) => {
+    const input = overlay.querySelector(`[data-file="${name}"]`);
+    return input?.files?.length ? input.files[0] : null;
+  };
+
+  // Dosya seçilince anında önizleme ve dosya adı gösterilir
+  fields.filter(f => f.type === 'image').forEach((field) => {
+    const fileInput = overlay.querySelector(`[data-file="${field.name}"]`);
+    const preview = overlay.querySelector(`[data-preview="${field.name}"]`);
+    const label = overlay.querySelector(`[data-preview-label="${field.name}"]`);
+
+    fileInput?.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      preview.querySelector('img')?.remove();
+
+      if (!file) {
+        label.textContent = '';
+        return;
+      }
+
+      const error = validateImageFile(file);
+      if (error) {
+        alert(error);
+        fileInput.value = '';
+        label.textContent = '';
+        return;
+      }
+
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(file);
+      img.alt = '';
+      img.onload = () => URL.revokeObjectURL(img.src);
+      preview.prepend(img);
+      label.textContent = `${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
+    });
+  });
+
   const submitBtn = overlay.querySelector('[data-action="submit"]');
   submitBtn.addEventListener('click', async () => {
     const data = {};
@@ -452,8 +536,16 @@ function openAdminForm({ title, icon = 'fa-pen-to-square', fields, values = {}, 
       data[field.name] = input ? input.value.trim() : '';
     }
 
-    // Zorunlu alan kontrolü
-    const missing = fields.filter(f => f.required && !data[f.name]);
+    // Zorunlu alan kontrolü.
+    // DİKKAT: Resim alanlarında değer ya URL kutusundan ya da seçilen dosyadan gelir.
+    // Dosya yüklemesi bu kontrolden SONRA yapıldığı için, seçili dosyayı da
+    // "dolu" saymazsak dosya seçen kullanıcıya haksız yere uyarı çıkar.
+    const missing = fields.filter((f) => {
+      if (!f.required) return false;
+      if (f.type === 'image') return !data[f.name] && !pickedFile(f.name);
+      return !data[f.name];
+    });
+
     if (missing.length > 0) {
       alert(`Lütfen şu alanları doldurun:\n• ${missing.map(f => f.label).join('\n• ')}`);
       return;
@@ -463,18 +555,20 @@ function openAdminForm({ title, icon = 'fa-pen-to-square', fields, values = {}, 
     const originalLabel = submitBtn.innerHTML;
     submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Kaydediliyor...';
 
-    // Seçilen dosyalar yüklenir ve ilgili alana yazılır
+    // Seçilen dosyalar yüklenir ve ilgili alana yazılır.
+    // Dosya seçimi URL kutusundan önceliklidir.
     for (const field of fields.filter(f => f.type === 'image')) {
-      const fileInput = overlay.querySelector(`[data-file="${field.name}"]`);
-      if (fileInput?.files?.length) {
-        const uploadedUrl = await uploadImage(fileInput.files[0]);
-        if (!uploadedUrl) {
-          submitBtn.disabled = false;
-          submitBtn.innerHTML = originalLabel;
-          return;
-        }
-        data[field.name] = uploadedUrl;
+      const file = pickedFile(field.name);
+      if (!file) continue;
+
+      submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Görsel yükleniyor...';
+      const uploadedUrl = await uploadImage(file);
+      if (!uploadedUrl) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalLabel;
+        return;
       }
+      data[field.name] = uploadedUrl;
     }
 
     try {

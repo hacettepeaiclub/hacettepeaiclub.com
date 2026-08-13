@@ -30,7 +30,7 @@ async def get_sponsors(
         limit: Optional[int] = Query(None,
                                      description="Getirilecek maksimum kayıt sayısı (Boş bırakılırsa tüm listeyi döner)")
 ):
-    query = select(Sponsor).order_by(Sponsor.order_index).offset(skip)
+    query = select(Sponsor).order_by(Sponsor.order_index, Sponsor.id).offset(skip)
 
     if limit is not None:
         query = query.limit(limit)
@@ -53,7 +53,7 @@ async def update_sponsor(
     if not db_sponsor:
         raise HTTPException(status_code=404, detail="Güncellenmek istenen sponsor bulunamadı.")
 
-    update_data = sponsor_update.model_dump(exclude_unset=True)
+    update_data = sponsor_update.model_dump(exclude_unset=True, exclude={"id"})
     for key, value in update_data.items():
         setattr(db_sponsor, key, value)
 

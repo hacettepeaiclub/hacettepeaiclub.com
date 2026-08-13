@@ -82,10 +82,12 @@ function closeModal() {
   document.body.classList.remove('modal-open');
 }
 
-// Trigger buttons
+// Trigger buttons (header açılır menüsü + yan menü)
 contactTriggers.forEach((trigger) => {
   trigger.addEventListener('click', (e) => {
     e.preventDefault();
+    window.hamburgerMenu?.close(); // Yan menüden açıldıysa menüyü kapat
+    document.getElementById('contact-dropdown')?.classList.remove('show');
     openModal();
   });
 });

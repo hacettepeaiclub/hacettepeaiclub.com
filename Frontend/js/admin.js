@@ -1,74 +1,236 @@
 /**
  * Hacettepe AI Club - Admin Panel Module (API INTEGRATED)
- * Handle login, calendar events, and training management via FastAPI Backend.
+ *
+ * Sorumlulukları:
+ *  - Admin girişi / çıkışı
+ *  - Tüm dinamik içeriğin API'den çekilip ekrana basılması
+ *  - Admin modunda ekleme, DÜZENLEME, silme ve SIRALAMA
+ *
+ * Not: API_URL app.js içinde tanımlıdır (app.js bu dosyadan önce yüklenir).
  */
+
+'use strict';
 
 // ---------------------------------------------------------------------------
 //  Constants & Configuration
 // ---------------------------------------------------------------------------
-const API_URL = 'http://127.0.0.1:8000'; // Canlıya alınca burası sunucu IP/Domain'i olacak
 const LS_TOKEN_KEY = 'hacettepe_ai_token';
 const LS_ADMIN_STATE = 'hacettepe_ai_admin';
 
-const EVENT_TYPES = {
-  egitim:   'Eğitim',
-  yarisma:  'Yarışma',
-  etkinlik: 'Etkinlik',
-  party:    'Party',
+/** Kurucu admin: yalnızca bu hesap diğer adminleri yönetebilir. */
+const OWNER_EMAIL = 'hacettepeyapayzeka@gmail.com';
+
+/** Etkinlik tablosunu paylaşan farklı içerik türleri. */
+const EVENT_KIND = {
+  SLIDER: 'Slider',
+  COMPETITION: 'YarismaKarti',
 };
 
-// ---------------------------------------------------------------------------
-//  DOM References
-// ---------------------------------------------------------------------------
-const adminModal     = document.getElementById('admin-modal');
-const adminLoginForm = document.getElementById('admin-login-form');
-const adminClose     = document.getElementById('admin-close');
-const adminTrigger   = document.getElementById('admin-trigger');
-const adminPassword  = document.getElementById('admin-password');
+/**
+ * order_index tüm etkinlikler için tek bir sütun olduğundan, her içerik türüne
+ * ayrı bir sayı aralığı veriyoruz. Böylece takvim / slayt / yarışma sıralamaları
+ * birbirine karışmaz.
+ */
+const ORDER_BASE = {
+  calendar: 0,
+  slider: 10000,
+  competition: 20000,
+};
+
+const TURKISH_MONTHS = {
+  '01': 'Ocak', '02': 'Şubat', '03': 'Mart', '04': 'Nisan',
+  '05': 'Mayıs', '06': 'Haziran', '07': 'Temmuz', '08': 'Ağustos',
+  '09': 'Eylül', '10': 'Ekim', '11': 'Kasım', '12': 'Aralık',
+};
 
 // ---------------------------------------------------------------------------
 //  Fetch Interceptor (401 Hatalarını Otomatik Yakalama)
 // ---------------------------------------------------------------------------
-const originalFetch = window.fetch;
-window.fetch = async function(...args) {
+const originalFetch = window.fetch.bind(window);
+window.fetch = async function (...args) {
   const response = await originalFetch(...args);
-  
-  // Eğer sunucudan 401 (Yetkisiz) hatası dönerse ve admin modundaysak
+
+  // Sunucu 401 (Yetkisiz) dönerse ve admin modundaysak oturumu kapat
   if (response.status === 401 && document.body.classList.contains('admin-mode')) {
-     alert("Oturum süreniz doldu. Güvenliğiniz için lütfen tekrar giriş yapın.");
-     
-     // Çıkış fonksiyonumuzu çağırıp temizlik yapıyoruz
-     deactivateAdminMode(); 
+    alert('Oturum süreniz doldu. Güvenliğiniz için lütfen tekrar giriş yapın.');
+    deactivateAdminMode();
   }
   return response;
 };
 
 // ---------------------------------------------------------------------------
+//  Utilities
+// ---------------------------------------------------------------------------
+
+function escapeHTML(str = '') {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+function getToken() {
+  return localStorage.getItem(LS_TOKEN_KEY);
+}
+
+function isAdmin() {
+  return document.body.classList.contains('admin-mode');
+}
+
+/** Yetkisiz (public) GET isteği. Hata durumunda boş dizi döner. */
+async function apiGet(path) {
+  try {
+    const res = await fetch(`${API_URL}${path}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error(`API'ye ulaşılamadı (${path}):`, err);
+    return [];
+  }
+}
+
+/**
+ * Yetkili istek (POST / PUT / DELETE).
+ * Başarısız olursa kullanıcıya anlaşılır bir mesaj gösterir ve false döner.
+ */
+async function apiSend(method, path, body, errorMessage) {
+  try {
+    const options = {
+      method,
+      headers: { Authorization: `Bearer ${getToken()}` },
+    };
+    if (body !== undefined) {
+      options.headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(`${API_URL}${path}`, options);
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const payload = await res.json();
+        detail = payload.detail || payload.message || '';
+      } catch (_) { /* gövde JSON değilse yoksay */ }
+      throw new Error(detail || `Sunucu ${res.status} döndü.`);
+    }
+    return true;
+  } catch (error) {
+    alert(`${errorMessage}\n${error.message}`);
+    return false;
+  }
+}
+
+/** "2026-07-25T00:00:00" → "25 Temmuz 2026" */
+function formatDateForDisplay(dateStr) {
+  if (!dateStr) return '-';
+  const [y, m, d] = String(dateStr).split('T')[0].split('-');
+  if (!y || !m || !d) return escapeHTML(dateStr);
+  return `${parseInt(d, 10)} ${TURKISH_MONTHS[m] || ''} ${y}`;
+}
+
+/**
+ * Çok günlü etkinlikler için okunabilir tarih aralığı üretir.
+ * Aynı ay içindeyse "12 – 14 Aralık 2026", değilse iki tarihi de yazar.
+ */
+function formatDateRange(startStr, endStr) {
+  if (!endStr) return formatDateForDisplay(startStr);
+
+  const [sy, sm, sd] = String(startStr).split('T')[0].split('-');
+  const [ey, em, ed] = String(endStr).split('T')[0].split('-');
+
+  if (sy === ey && sm === em) {
+    return `${parseInt(sd, 10)} – ${parseInt(ed, 10)} ${TURKISH_MONTHS[sm] || ''} ${sy}`;
+  }
+  if (sy === ey) {
+    return `${parseInt(sd, 10)} ${TURKISH_MONTHS[sm] || ''} – ${parseInt(ed, 10)} ${TURKISH_MONTHS[em] || ''} ${sy}`;
+  }
+  return `${formatDateForDisplay(startStr)} – ${formatDateForDisplay(endStr)}`;
+}
+
+/** <input type="date"> için "YYYY-MM-DD" değeri üretir. */
+function toDateInputValue(dateStr) {
+  if (!dateStr) return '';
+  return String(dateStr).split('T')[0];
+}
+
+/** "YYYY-MM-DD" → "YYYYMMDD" (Google Takvim formatı) */
+function toCompactDate(dateStr) {
+  return toDateInputValue(dateStr).replace(/-/g, '');
+}
+
+/** Google Takvim bağlantısı. Çok günlü etkinliklerde tüm aralığı kapsar. */
+function getGoogleCalendarUrl(name, startStr, endStr, location) {
+  const start = toCompactDate(startStr);
+  if (!start) return '#';
+
+  // Google'da tüm gün süren etkinliklerde bitiş tarihi dışlayıcıdır: +1 gün eklenir.
+  const lastDay = endStr ? new Date(`${toDateInputValue(endStr)}T00:00:00`) : new Date(`${toDateInputValue(startStr)}T00:00:00`);
+  lastDay.setDate(lastDay.getDate() + 1);
+  const end = `${lastDay.getFullYear()}${String(lastDay.getMonth() + 1).padStart(2, '0')}${String(lastDay.getDate()).padStart(2, '0')}`;
+
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: name,
+    dates: `${start}/${end}`,
+    details: `${name} - Hacettepe AI Club`,
+    location: location || '',
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+/** Başlıktan URL dostu slug üretir (Türkçe karakterler sadeleştirilir). */
+function slugify(text) {
+  const map = { ı: 'i', İ: 'i', ş: 's', Ş: 's', ğ: 'g', Ğ: 'g', ü: 'u', Ü: 'u', ö: 'o', Ö: 'o', ç: 'c', Ç: 'c' };
+  return String(text)
+    .replace(/[ıİşŞğĞüÜöÖçÇ]/g, (ch) => map[ch])
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'kayit';
+}
+
+// ---------------------------------------------------------------------------
+//  Görsel Yükleme
+// ---------------------------------------------------------------------------
+async function uploadImage(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch(`${API_URL}/uploads/image`, {
+      method: 'POST',
+      // ÖNEMLİ: FormData'da Content-Type başlığını tarayıcı kendisi ayarlar.
+      headers: { Authorization: `Bearer ${getToken()}` },
+      body: formData,
+    });
+
+    if (!res.ok) throw new Error('Sunucu görseli kabul etmedi.');
+
+    const data = await res.json();
+    // Backend "/static/uploads/resim.png" döner; tam URL'ye çeviriyoruz.
+    return API_URL + data.url;
+  } catch (error) {
+    alert(`Resim yüklenirken hata oluştu: ${error.message}`);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 //  Admin Login Modal & Authentication
 // ---------------------------------------------------------------------------
+const adminModal = document.getElementById('admin-modal');
+const adminLoginForm = document.getElementById('admin-login-form');
+const adminClose = document.getElementById('admin-close');
+const adminTrigger = document.getElementById('admin-trigger');
 
 function openAdminModal() {
   adminModal?.classList.add('active');
   document.body.classList.add('modal-open');
-  adminPassword?.focus();
+  document.getElementById('admin-username')?.focus();
   document.getElementById('side-menu-close')?.click();
 }
 
 function closeAdminModal() {
   adminModal?.classList.remove('active');
-  adminModal?.classList.add('closing');
-
-  const onEnd = () => {
-    adminModal?.classList.remove('closing');
-    document.body.classList.remove('modal-open');
-    adminModal?.removeEventListener('transitionend', onEnd);
-  };
-  adminModal?.addEventListener('transitionend', onEnd);
-
-  setTimeout(() => {
-    adminModal?.classList.remove('closing');
-    document.body.classList.remove('modal-open');
-  }, 500);
+  document.body.classList.remove('modal-open');
 }
 
 adminTrigger?.addEventListener('click', (e) => {
@@ -87,40 +249,30 @@ document.addEventListener('keydown', (e) => {
 });
 document.getElementById('admin-logout')?.addEventListener('click', deactivateAdminMode);
 
-/**
- * FastAPI Login Endpoint'ine istek atar
- */
 async function handleAdminLogin(e) {
   e.preventDefault();
-  
+
   const usernameInput = document.getElementById('admin-username');
   const passwordInput = document.getElementById('admin-password');
-  
-  const username = usernameInput?.value ?? '';
-  const password = passwordInput?.value ?? '';
+
+  const formData = new URLSearchParams();
+  formData.append('username', usernameInput?.value ?? '');
+  formData.append('password', passwordInput?.value ?? '');
 
   try {
-    const formData = new URLSearchParams();
-    formData.append('username', username);
-    formData.append('password', password);
-
     const response = await fetch(`${API_URL}/auth/login`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData,
     });
 
     if (!response.ok) throw new Error('Giriş başarısız');
 
     const data = await response.json();
-    
     localStorage.setItem(LS_TOKEN_KEY, data.access_token);
     activateAdminMode();
     closeAdminModal();
-    e.target.reset(); 
-
+    e.target.reset();
   } catch (error) {
     alert('Kullanıcı adı, şifre hatalı veya sunucuya ulaşılamıyor.');
     passwordInput?.focus();
@@ -129,488 +281,850 @@ async function handleAdminLogin(e) {
 
 adminLoginForm?.addEventListener('submit', handleAdminLogin);
 
+/** JWT içindeki e-posta bilgisini okur. */
+function getCurrentUserEmail() {
+  const token = getToken();
+  if (!token) return '';
+  try {
+    return JSON.parse(atob(token.split('.')[1])).sub || '';
+  } catch (e) {
+    console.error('Token okunamadı');
+    return '';
+  }
+}
+
+/**
+ * Araç çubuğunun gerçek yüksekliğini ölçüp CSS'e bildirir.
+ * Mobilde butonlar alt satıra kaydığında header ve yan menünün
+ * çubuğun altında kalmasını engeller.
+ */
+function syncToolbarHeight() {
+  const toolbar = document.getElementById('admin-toolbar');
+  if (!toolbar || !isAdmin()) {
+    document.body.style.removeProperty('--admin-toolbar-h');
+    return;
+  }
+  document.body.style.setProperty('--admin-toolbar-h', `${toolbar.offsetHeight}px`);
+}
+
+window.addEventListener('resize', syncToolbarHeight, { passive: true });
+
 function activateAdminMode() {
   document.body.classList.add('admin-mode');
   localStorage.setItem(LS_ADMIN_STATE, 'true');
+
   const toolbar = document.getElementById('admin-toolbar');
   if (toolbar) toolbar.style.display = 'block';
-  
-  // YENİ: admin-only class'ına sahip tüm elementleri görünür yap
-  document.querySelectorAll('.admin-only').forEach(el => {
-    el.style.display = 'block';
-  });
-  
-  injectAdminButtons();
-  loadAndRenderAll(); 
+
+  injectToolbarButtons();
+  syncToolbarHeight();
+  loadAndRenderAll();
 }
 
 function deactivateAdminMode() {
   document.body.classList.remove('admin-mode');
   localStorage.removeItem(LS_ADMIN_STATE);
   localStorage.removeItem(LS_TOKEN_KEY);
-  
+
   const toolbar = document.getElementById('admin-toolbar');
   if (toolbar) toolbar.style.display = 'none';
 
-  // YENİ: Çıkış yapıldığında eklenmiş olan admin butonlarını anında DOM'dan söküp atıyoruz
-  const addAdminBtn = document.getElementById('admin-add-admin-btn');
-  if (addAdminBtn) addAdminBtn.remove();
+  // Araç çubuğuna sonradan eklenmiş butonları temizle
+  ['admin-show-newsletter-btn', 'admin-add-admin-btn', 'admin-manage-btn']
+    .forEach(id => document.getElementById(id)?.remove());
+  document.querySelectorAll('.admin-modal-form').forEach(f => f.remove());
+  syncToolbarHeight();
 
-  const manageBtn = document.getElementById('admin-manage-btn');
-  if (manageBtn) manageBtn.remove();
-
-  removeAdminButtons();
-  loadAndRenderAll(); 
-  
-  document.querySelectorAll('.admin-only').forEach(el => {
-    el.style.display = 'none';
-  });
+  loadAndRenderAll();
 }
 
-// ---------------------------------------------------------------------------
-//  API Call & Render Operations
-// ---------------------------------------------------------------------------
+/** Araç çubuğundaki yönetim butonlarını ekler. */
+function injectToolbarButtons() {
+  const toolbarInner = document.querySelector('.admin-toolbar-inner');
+  const logoutBtn = document.getElementById('admin-logout');
+  if (!toolbarInner || !logoutBtn) return;
 
-/** Veritabanındaki tüm etkinlikleri çeker */
-async function fetchAllEvents() {
-  try {
-    const res = await fetch(`${API_URL}/events`);
-    if (!res.ok) return [];
-    return await res.json();
-  } catch (err) {
-    console.error("API'ye ulaşılamadı:", err);
-    return [];
-  }
-}
-
-/** Sayfa yüklendiğinde veya admin olunduğunda tüm verileri API'dan alıp arayüze basar */
-async function loadAndRenderAll() {
-  const events = await fetchAllEvents();
-  
-  // Takvim
-  renderCalendarEvents(events);
-  
-  // YENİ: Etkinlikler (Slider)
-  renderEventSlider(events);
-  
-  // Eğitimler
-  const trainings = events.filter(e => e.event_type.toLowerCase() === 'eğitim' || e.event_type.toLowerCase() === 'egitim');
-  renderTrainings(trainings);
-
-  // Üyeler
-  const members = await fetchBoardMembers();
-  renderBoardMembers(members);
-
-  // Projeler
-  const projects = await fetchProjects();
-  renderProjects(projects);
-
-  // Duyurular
-  const announcements = await fetchAnnouncements();
-  renderAnnouncements(announcements);
-
-  // Sponsorlar
-  const sponsors = await fetchSponsors();
-  renderSponsors(sponsors);
-
-  // Yarışmaları Bas (YENİ EKLENEN)
-  renderCompetitions(events);
-}
-
-// ---------------------------------------------------------------------------
-//  Calendar Event Management
-// ---------------------------------------------------------------------------
-
-async function addCalendarEvent(eventData) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  try {
-    await fetch(`${API_URL}/events`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(eventData)
-    });
-    loadAndRenderAll();
-  } catch (error) {
-    alert("Etkinlik eklenirken hata oluştu.");
-  }
-}
-
-async function deleteCalendarEvent(id) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  try {
-    await fetch(`${API_URL}/events/${id}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-    loadAndRenderAll();
-  } catch (error) {
-    alert("Silme işlemi başarısız.");
-  }
-}
-
-function parseTurkishDate(dateStr) {
-  const months = {
-    'ocak': '01', 'şubat': '02', 'mart': '03', 'nisan': '04',
-    'mayıs': '05', 'haziran': '06', 'temmuz': '07', 'ağustos': '08',
-    'eylül': '09', 'ekim': '10', 'kasım': '11', 'aralık': '12'
+  const addButton = (id, icon, label, handler) => {
+    if (document.getElementById(id)) return;
+    const btn = document.createElement('button');
+    btn.id = id;
+    btn.className = 'btn-primary';
+    btn.style.cssText = 'margin-left: 12px; padding: 5px 15px;';
+    btn.innerHTML = `<i class="fa-solid ${icon}"></i> ${label}`;
+    btn.addEventListener('click', handler);
+    toolbarInner.insertBefore(btn, logoutBtn);
   };
-  const cleanStr = dateStr.toLowerCase().trim();
-  const parts = cleanStr.split(/\s+/);
-  let day = '01', month = '01', year = new Date().getFullYear().toString();
 
-  if (parts.length >= 3) {
-    day = parts[0].padStart(2, '0');
-    month = months[parts[1]] || '01';
-    year = parts[2];
-  } else {
-    const match = cleanStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (match) return { year: match[1], month: match[2], day: match[3] };
+  addButton('admin-show-newsletter-btn', 'fa-list', 'Aboneler', openNewsletterListModal);
+
+  // Yalnızca kurucu admin diğer adminleri yönetebilir
+  if (getCurrentUserEmail() === OWNER_EMAIL) {
+    addButton('admin-add-admin-btn', 'fa-user-plus', 'Yeni Admin', openAddAdminForm);
+    addButton('admin-manage-btn', 'fa-users-gear', 'Adminleri Yönet', openAdminListForm);
   }
-  return { year, month, day };
 }
 
-function getGoogleCalendarUrl(name, dateStr, location) {
-  const parsed = parseTurkishDate(dateStr);
-  const startDate = `${parsed.year}${parsed.month}${parsed.day}`;
-  const dates = `${startDate}T160000Z/${startDate}T180000Z`;
-  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(name)}&dates=${dates}&details=${encodeURIComponent(name + ' - Hacettepe AI Club')}&location=${encodeURIComponent(location)}`;
+// ---------------------------------------------------------------------------
+//  Generic Admin Form Builder
+// ---------------------------------------------------------------------------
+/**
+ * Ekleme ve düzenleme için ortak modal form.
+ * Aynı alan tanımı hem "Ekle" hem "Düzenle" için kullanılır; böylece iki
+ * ekranın birbirinden ayrışması (ve unutulan alanlar) mümkün olmaz.
+ *
+ * @param {object}   config
+ * @param {string}   config.title    Modal başlığı
+ * @param {string}   config.icon     Font Awesome ikon sınıfı
+ * @param {Array}    config.fields   Alan tanımları
+ * @param {object}   config.values   Düzenleme modunda mevcut değerler
+ * @param {Function} config.onSubmit Doğrulanmış değerlerle çağrılır
+ */
+function openAdminForm({ title, icon = 'fa-pen-to-square', fields, values = {}, onSubmit }) {
+  // Aynı anda tek form açık kalsın
+  document.querySelectorAll('.admin-modal-form').forEach(f => f.remove());
+
+  const overlay = document.createElement('div');
+  overlay.className = 'admin-modal-form';
+
+  const fieldHtml = fields.map((field) => {
+    const value = values[field.name] ?? field.default ?? '';
+    const required = field.required ? ' *' : '';
+    const hint = field.hint ? `<small class="admin-form-hint">${escapeHTML(field.hint)}</small>` : '';
+
+    switch (field.type) {
+      case 'textarea':
+        return `<label>${escapeHTML(field.label)}${required}
+          <textarea data-field="${field.name}" rows="${field.rows || 3}" placeholder="${escapeHTML(field.placeholder || '')}">${escapeHTML(value)}</textarea>${hint}</label>`;
+
+      case 'select': {
+        const options = field.options.map(opt =>
+          `<option value="${escapeHTML(opt)}" ${String(value) === String(opt) ? 'selected' : ''}>${escapeHTML(opt)}</option>`
+        ).join('');
+        return `<label>${escapeHTML(field.label)}${required}
+          <select data-field="${field.name}">${options}</select>${hint}</label>`;
+      }
+
+      case 'image':
+        return `<div class="admin-upload-box">
+            <label style="color: var(--glow);">${escapeHTML(field.label)} (Bilgisayardan)
+              <input type="file" data-file="${field.name}" accept="image/*" />
+            </label>
+            <div class="admin-upload-or">VEYA</div>
+            <label>Görsel URL ${field.allowIcon ? '/ İkon' : ''}
+              <input type="text" data-field="${field.name}" value="${escapeHTML(value)}" placeholder="${escapeHTML(field.placeholder || 'https://...')}" />
+            </label>${hint}
+          </div>`;
+
+      case 'date':
+        return `<label>${escapeHTML(field.label)}${required}
+          <input type="date" data-field="${field.name}" value="${escapeHTML(toDateInputValue(value))}" />${hint}</label>`;
+
+      default:
+        return `<label>${escapeHTML(field.label)}${required}
+          <input type="text" data-field="${field.name}" value="${escapeHTML(value)}" placeholder="${escapeHTML(field.placeholder || '')}" />${hint}</label>`;
+    }
+  }).join('');
+
+  overlay.innerHTML = `
+    <div class="admin-inline-form">
+      <h4><i class="fa-solid ${icon}"></i> ${escapeHTML(title)}</h4>
+      ${fieldHtml}
+      <div class="admin-form-actions">
+        <button type="button" class="admin-btn" data-action="submit">Kaydet</button>
+        <button type="button" class="admin-btn admin-btn--secondary" data-action="cancel">İptal</button>
+      </div>
+    </div>
+  `;
+
+  const close = () => overlay.remove();
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+
+  const submitBtn = overlay.querySelector('[data-action="submit"]');
+  submitBtn.addEventListener('click', async () => {
+    const data = {};
+
+    for (const field of fields) {
+      const input = overlay.querySelector(`[data-field="${field.name}"]`);
+      data[field.name] = input ? input.value.trim() : '';
+    }
+
+    // Zorunlu alan kontrolü
+    const missing = fields.filter(f => f.required && !data[f.name]);
+    if (missing.length > 0) {
+      alert(`Lütfen şu alanları doldurun:\n• ${missing.map(f => f.label).join('\n• ')}`);
+      return;
+    }
+
+    submitBtn.disabled = true;
+    const originalLabel = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Kaydediliyor...';
+
+    // Seçilen dosyalar yüklenir ve ilgili alana yazılır
+    for (const field of fields.filter(f => f.type === 'image')) {
+      const fileInput = overlay.querySelector(`[data-file="${field.name}"]`);
+      if (fileInput?.files?.length) {
+        const uploadedUrl = await uploadImage(fileInput.files[0]);
+        if (!uploadedUrl) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = originalLabel;
+          return;
+        }
+        data[field.name] = uploadedUrl;
+      }
+    }
+
+    try {
+      const success = await onSubmit(data);
+      if (success !== false) close();
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = originalLabel;
+    }
+  });
+
+  document.body.appendChild(overlay);
+  overlay.querySelector('input, textarea, select')?.focus();
 }
 
+// ---------------------------------------------------------------------------
+//  Admin Controls (Düzenle / Sil / Sırala)
+// ---------------------------------------------------------------------------
+/**
+ * Her düzenlenebilir öğenin üstüne yerleşen kontrol kümesini üretir.
+ * @param {object} handlers { onEdit, onDelete, onMoveUp, onMoveDown }
+ * @param {object} state    { isFirst, isLast, inline }
+ */
+function buildAdminControls(handlers, state = {}) {
+  const wrap = document.createElement('div');
+  wrap.className = `admin-controls${state.inline ? ' admin-controls--inline' : ''}`;
+
+  const addBtn = (variant, icon, titleText, handler, disabled = false) => {
+    if (!handler) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `admin-ctrl-btn admin-ctrl-btn--${variant}`;
+    btn.title = titleText;
+    btn.setAttribute('aria-label', titleText);
+    btn.innerHTML = `<i class="fa-solid ${icon}"></i>`;
+    btn.disabled = disabled;
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handler();
+    });
+    wrap.appendChild(btn);
+  };
+
+  addBtn('move', 'fa-arrow-up', 'Yukarı Taşı', handlers.onMoveUp, state.isFirst);
+  addBtn('move', 'fa-arrow-down', 'Aşağı Taşı', handlers.onMoveDown, state.isLast);
+  addBtn('edit', 'fa-pen', 'Düzenle', handlers.onEdit);
+  addBtn('delete', 'fa-xmark', 'Sil', handlers.onDelete);
+
+  return wrap;
+}
+
+/**
+ * Bir listedeki iki komşu öğenin yerini değiştirir ve yeni sıralamayı kaydeder.
+ *
+ * order_index değerleri baştan 0 olabileceği için, önce listenin tamamına
+ * ardışık indeks atanır; ardından yalnızca değeri değişen kayıtlar sunucuya
+ * gönderilir. Bu sayede tek tıklamada gereksiz istek atılmaz.
+ *
+ * @param {Array}    items      Ekrandaki sırayla dizilmiş kayıtlar
+ * @param {number}   index      Taşınacak kaydın konumu
+ * @param {number}   direction  -1 (yukarı) veya +1 (aşağı)
+ * @param {string}   endpoint   "/sponsors" gibi kaynak yolu
+ * @param {number}   base       order_index taban değeri (etkinlik türleri için)
+ */
+async function reorderItems(items, index, direction, endpoint, base = 0) {
+  const target = index + direction;
+  if (target < 0 || target >= items.length) return;
+
+  const ordered = items.slice();
+  [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+
+  const updates = [];
+  ordered.forEach((item, position) => {
+    const newIndex = base + position;
+    if (item.order_index !== newIndex) {
+      updates.push({ item, newIndex });
+    }
+  });
+
+  const results = await Promise.all(
+    updates.map(({ item, newIndex }) =>
+      apiSend('PUT', `${endpoint}/${item.id}`, { ...item, order_index: newIndex }, 'Sıralama kaydedilemedi.')
+    )
+  );
+
+  if (results.every(Boolean)) {
+    await loadAndRenderAll();
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  Data Loading & Rendering
+// ---------------------------------------------------------------------------
+
+async function loadAndRenderAll() {
+  const [events, members, projects, announcements, sponsors, stakeholders] = await Promise.all([
+    apiGet('/events'),
+    apiGet('/board-members'),
+    apiGet('/projects'),
+    apiGet('/announcements'),
+    apiGet('/sponsors'),
+    apiGet('/stakeholders'),
+  ]);
+
+  renderCalendarEvents(events);
+  renderEventSlider(events);
+  renderCompetitions(events);
+  renderBoardMembers(members);
+  renderProjects(projects);
+  renderAnnouncements(announcements);
+  renderPartners(sponsors, {
+    trackId: 'sponsors-dynamic-track',
+    endpoint: '/sponsors',
+    emptyText: 'Henüz bir iş birliği eklenmemiş.',
+    entityLabel: 'iş birliği',
+  });
+  renderPartners(stakeholders, {
+    trackId: 'stakeholders-dynamic-track',
+    endpoint: '/stakeholders',
+    emptyText: 'Henüz bir paydaş topluluk eklenmemiş.',
+    entityLabel: 'paydaş topluluk',
+  });
+
+  injectSectionButtons();
+}
+
+/** Boş liste durumunda gösterilecek bilgilendirme kutusu. */
+function emptyStateHtml(text) {
+  return `<div class="marquee-item" style="color: var(--text-muted); padding: 20px; text-align: center; width: 100%;">${escapeHTML(text)}</div>`;
+}
+
+// ===========================================================================
+// TAKVİM
+// ===========================================================================
 function renderCalendarEvents(events) {
   const tbody = document.getElementById('calendar-body');
   if (!tbody) return;
 
-  const isAdmin = document.body.classList.contains('admin-mode');
-  tbody.querySelectorAll('.dynamic-event-row').forEach(row => row.remove());
+  // Slayt ve yarışma kartları takvimde gösterilmez
+  const calendarEvents = events.filter(e =>
+    e.event_type !== EVENT_KIND.SLIDER && e.event_type !== EVENT_KIND.COMPETITION
+  );
 
-  // Slider'ları filtreleyerek takvimden gizliyoruz
-  const calendarEvents = events.filter(e => e.event_type.toLowerCase() !== 'slider' && e.event_type !== 'YarismaKarti');
-  calendarEvents.forEach((evt) => {
+  tbody.innerHTML = '';
+
+  if (calendarEvents.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="${isAdmin() ? 6 : 5}" style="text-align:center; color: var(--text-muted);">Henüz takvime etkinlik eklenmemiş.</td></tr>`;
+    return;
+  }
+
+  calendarEvents.forEach((evt, index) => {
     const tr = document.createElement('tr');
     tr.className = 'dynamic-event-row';
 
+    const type = (evt.event_type || '').toLowerCase();
     let badgeClass = 'cal-event';
-    const tType = evt.event_type.toLowerCase();
-    if (tType === 'yarışma' || tType === 'yarisma') badgeClass = 'cal-competition';
-    else if (tType === 'eğitim' || tType === 'egitim') badgeClass = 'cal-training';
-    else if (tType === 'party') badgeClass = 'cal-party';
+    if (type === 'yarışma' || type === 'yarisma') badgeClass = 'cal-competition';
+    else if (type === 'eğitim' || type === 'egitim') badgeClass = 'cal-training';
+    else if (type === 'party') badgeClass = 'cal-party';
 
-    const calUrl = getGoogleCalendarUrl(evt.title, evt.date, evt.location);
+    const calUrl = getGoogleCalendarUrl(evt.title, evt.date, evt.end_date, evt.location);
+    const dayCount = evt.end_date
+      ? Math.round((new Date(toDateInputValue(evt.end_date)) - new Date(toDateInputValue(evt.date))) / 86400000) + 1
+      : 1;
 
     tr.innerHTML = `
       <td>${escapeHTML(evt.title)}</td>
       <td><span class="cal-badge ${badgeClass}">${escapeHTML(evt.event_type)}</span></td>
-      <td>${formatDateForDisplay(evt.date)}</td>
+      <td>
+        ${formatDateRange(evt.date, evt.end_date)}
+        ${dayCount > 1 ? `<span class="cal-badge cal-event" style="margin-left:8px;">${dayCount} gün</span>` : ''}
+      </td>
       <td>${escapeHTML(evt.location)}</td>
       <td>
         <a href="${calUrl}" target="_blank" rel="noopener" class="btn-cal-add" title="Takvime Ekle">
           <i class="fa-solid fa-calendar-plus"></i>
         </a>
       </td>
-      ${isAdmin ? `<td><button class="admin-delete-btn" data-id="${evt.id}" title="Sil">✕</button></td>` : ''}
     `;
+
+    if (isAdmin()) {
+      const cell = document.createElement('td');
+      cell.className = 'admin-only';
+      cell.appendChild(buildAdminControls({
+        onEdit: () => openEventForm(evt),
+        onDelete: () => confirmDelete('Bu etkinliği takvimden silmek', `/events/${evt.id}`),
+        onMoveUp: () => reorderItems(calendarEvents, index, -1, '/events', ORDER_BASE.calendar),
+        onMoveDown: () => reorderItems(calendarEvents, index, 1, '/events', ORDER_BASE.calendar),
+      }, { isFirst: index === 0, isLast: index === calendarEvents.length - 1, inline: true }));
+      tr.appendChild(cell);
+    }
+
     tbody.appendChild(tr);
   });
-
-  if (isAdmin) {
-    tbody.querySelectorAll('.admin-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        if (confirm('Bu etkinliği takvimden silmek istediğinize emin misiniz?')) {
-          await deleteCalendarEvent(btn.dataset.id);
-        }
-      });
-    });
-  }
 }
 
-// ---------------------------------------------------------------------------
-//  UI Injection (Admin Forms)
-// ---------------------------------------------------------------------------
+/** Takvim etkinliği ekleme / düzenleme formu (çoklu gün destekli). */
+function openEventForm(existing = null) {
+  const editing = Boolean(existing);
 
-function injectAdminButtons() {
-  if (!document.body.classList.contains('admin-mode')) return;
-
-  // Takvim (Etkinlik) Butonu (Herkes Görür)
-  const calendarSection = document.querySelector('#takvim, #calendar, .calendar-section');
-  if (calendarSection && !calendarSection.querySelector('.admin-add-event-btn')) {
-    const btn = document.createElement('button');
-    btn.className = 'admin-add-event-btn btn-primary';
-    btn.style.cssText = "display: block; margin: 20px auto 0 auto;";
-    btn.innerHTML = '<i class="fa-solid fa-plus"></i> Takvime Ekle';
-    btn.addEventListener('click', openEventForm);
-    calendarSection.appendChild(btn);
-  }
-
-  // Slayt Gösterisi İçin Buton (Herkes Görür)
-  const sliderSection = document.querySelector('#etkinlikler .container');
-  if (sliderSection && !sliderSection.querySelector('.admin-add-slider-btn')) {
-    const btn = document.createElement('button');
-    btn.className = 'admin-add-slider-btn btn-primary';
-    btn.style.cssText = "display: block; margin: 20px auto 0 auto;";
-    btn.innerHTML = '<i class="fa-solid fa-plus"></i> Slayt Ekle';
-    btn.addEventListener('click', openSliderForm);
-    sliderSection.appendChild(btn);
-  }
-
-  // YENİ YAPI: Token'ı çözüp giriş yapanın kim olduğunu anlıyoruz
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  let currentUserEmail = "";
-  if (token) {
-    try {
-      // JWT Token'ın içindeki veriyi okuma
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      currentUserEmail = payload.sub; // .sub alanı e-postayı tutuyor
-    } catch (e) {
-      console.error("Token okunamadı");
-    }
-  }
-
-  const toolbarInner = document.querySelector('.admin-toolbar-inner');
-  if (toolbarInner) {
-
-    // --- 1. BLOĞUN DIŞI: TÜM ADMİNLERİN GÖRECEĞİ BUTON ---
-    if (!document.getElementById('admin-show-newsletter-btn')) {
-      const newsletterBtn = document.createElement('button');
-      newsletterBtn.id = 'admin-show-newsletter-btn';
-      newsletterBtn.className = 'btn-primary';
-      newsletterBtn.style.marginLeft = '15px';
-      newsletterBtn.style.padding = '5px 15px';
-      newsletterBtn.innerHTML = '<i class="fa-solid fa-list"></i> Aboneler';
-      newsletterBtn.addEventListener('click', openNewsletterListModal);
-      toolbarInner.insertBefore(newsletterBtn, document.getElementById('admin-logout'));
-    }
-    
-    // SADECE KURUCU ADMİN (admin@hacettepeaiclub.com) İSE BUTONLARI GÖSTER
-    if (currentUserEmail === "hacettepeyapayzeka@gmail.com") {
-      
-
-      // Yeni Admin Ekle Butonu
-      if (!document.getElementById('admin-add-admin-btn')) {
-        const btn = document.createElement('button');
-        btn.id = 'admin-add-admin-btn';
-        btn.className = 'btn-primary';
-        btn.style.marginLeft = '15px';
-        btn.style.padding = '5px 15px';
-        btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Yeni Admin';
-        btn.addEventListener('click', openAddAdminForm);
-        toolbarInner.insertBefore(btn, document.getElementById('admin-logout'));
+  openAdminForm({
+    title: editing ? 'Etkinliği Düzenle' : 'Takvime Yeni Etkinlik Ekle',
+    icon: editing ? 'fa-pen-to-square' : 'fa-calendar-plus',
+    values: existing || {},
+    fields: [
+      { name: 'title', label: 'Etkinlik Adı', required: true },
+      { name: 'event_type', label: 'Tür', type: 'select', options: ['Etkinlik', 'Yarışma', 'Eğitim', 'Party'] },
+      { name: 'date', label: 'Başlangıç Tarihi', type: 'date', required: true },
+      {
+        name: 'end_date',
+        label: 'Bitiş Tarihi',
+        type: 'date',
+        hint: 'Etkinlik birden fazla gün sürüyorsa doldurun. Tek günlük etkinliklerde boş bırakın.',
+      },
+      { name: 'location', label: 'Konum', required: true },
+    ],
+    onSubmit: async (data) => {
+      if (data.end_date && data.end_date < data.date) {
+        alert('Bitiş tarihi başlangıç tarihinden önce olamaz.');
+        return false;
       }
-      
-      // Adminleri Yönet Butonu
-      if (!document.getElementById('admin-manage-btn')) {
-        const manageBtn = document.createElement('button');
-        manageBtn.id = 'admin-manage-btn';
-        manageBtn.className = 'btn-primary';
-        manageBtn.style.marginLeft = '15px';
-        manageBtn.style.padding = '5px 15px';
-        manageBtn.innerHTML = '<i class="fa-solid fa-users-gear"></i> Adminleri Yönet';
-        manageBtn.addEventListener('click', openAdminListForm);
-        toolbarInner.insertBefore(manageBtn, document.getElementById('admin-logout'));
-      }
-    }
+
+      const payload = {
+        title: data.title,
+        event_type: data.event_type,
+        date: data.date,
+        end_date: data.end_date || null,
+        location: data.location,
+        description: existing?.description || `${data.title} etkinliği hakkında detaylar yakında paylaşılacak.`,
+        content: existing?.content || '-',
+      };
+
+      const ok = editing
+        ? await apiSend('PUT', `/events/${existing.id}`, payload, 'Etkinlik güncellenemedi.')
+        : await apiSend('POST', '/events/', { ...payload, slug: slugify(data.title) }, 'Etkinlik eklenemedi.');
+
+      if (ok) await loadAndRenderAll();
+      return ok;
+    },
+  });
+}
+
+// ===========================================================================
+// ETKİNLİK SLAYTLARI
+// ===========================================================================
+function renderEventSlider(events) {
+  const track = document.getElementById('event-slider-track');
+  if (!track) return;
+
+  const slides = events.filter(e => e.event_type === EVENT_KIND.SLIDER);
+  track.innerHTML = '';
+
+  if (slides.length === 0) {
+    track.innerHTML = '<div class="slider-slide" style="color: var(--text-muted); text-align: center; padding: 40px;">Henüz gösterilecek bir slayt yok.</div>';
+    window.eventSlider?.update();
+    return;
   }
+
+  slides.forEach((evt, index) => {
+    const slide = document.createElement('div');
+    slide.className = 'slider-slide';
+    slide.innerHTML = `
+      <div class="event-banner" style="position: relative;">
+        <div class="event-banner-content">
+          <h3>${escapeHTML(evt.title)}</h3>
+          <p style="text-align: left;">${escapeHTML(evt.description)}</p>
+        </div>
+      </div>
+    `;
+
+    if (isAdmin()) {
+      slide.querySelector('.event-banner').appendChild(buildAdminControls({
+        onEdit: () => openSliderForm(evt),
+        onDelete: () => confirmDelete('Bu slaytı silmek', `/events/${evt.id}`),
+        onMoveUp: () => reorderItems(slides, index, -1, '/events', ORDER_BASE.slider),
+        onMoveDown: () => reorderItems(slides, index, 1, '/events', ORDER_BASE.slider),
+      }, { isFirst: index === 0, isLast: index === slides.length - 1 }));
+    }
+
+    track.appendChild(slide);
+  });
+
+  window.eventSlider?.update();
 }
 
-function removeAdminButtons() {
-  // Sadece Javascript ile eklenen Takvim ve Slayt butonlarını temizle
-  // (HTML içindeki orijinal Üye, Duyuru vb. butonlarına KESİNLİKLE DOKUNMA)
-  document.querySelectorAll('.admin-add-event-btn, .admin-add-slider-btn').forEach(btn => btn.remove());
-  document.querySelectorAll('.admin-inline-form').forEach(f => f.remove());
+function openSliderForm(existing = null) {
+  const editing = Boolean(existing);
+
+  openAdminForm({
+    title: editing ? 'Slaytı Düzenle' : 'Yeni Slayt Ekle',
+    icon: 'fa-images',
+    values: existing || {},
+    fields: [
+      { name: 'title', label: 'Slayt Başlığı', required: true },
+      { name: 'description', label: 'Slayt Açıklaması', type: 'textarea', rows: 4, required: true },
+    ],
+    onSubmit: async (data) => {
+      const payload = {
+        title: data.title,
+        description: data.description,
+        // Veritabanı bu alanları zorunlu tuttuğu için yer tutucu değer gönderiyoruz
+        date: existing ? toDateInputValue(existing.date) : new Date().toISOString().split('T')[0],
+        location: '-',
+        content: '-',
+        event_type: EVENT_KIND.SLIDER,
+      };
+
+      const ok = editing
+        ? await apiSend('PUT', `/events/${existing.id}`, payload, 'Slayt güncellenemedi.')
+        : await apiSend('POST', '/events/', { ...payload, slug: slugify(data.title) }, 'Slayt eklenemedi.');
+
+      if (ok) await loadAndRenderAll();
+      return ok;
+    },
+  });
 }
 
+// ===========================================================================
+// YARIŞMA KARTLARI
+// ===========================================================================
+function renderCompetitions(events) {
+  const track = document.getElementById('competitions-dynamic-track');
+  if (!track) return;
 
-// NOT: openEventForm() bu dosyanın altında (satır ~1513 civarı) tekrar
-// tanımlanıyor ve JS'te ge fonksiyon deklarasyonları için en son tanım
-// geçerli olduğundan asıl kullanılan versiyon odur. Kafa karışıklığını
-// önlemek için buradaki eski/ölü kopya kaldırıldı.
+  const competitions = events.filter(e => e.event_type === EVENT_KIND.COMPETITION);
+  track.innerHTML = '';
 
-// ---------------------------------------------------------------------------
-//  Training Render & Forms
-// ---------------------------------------------------------------------------
+  if (competitions.length === 0) {
+    track.innerHTML = emptyStateHtml('Henüz yarışma eklenmemiş.');
+    Marquee.refresh(track);
+    return;
+  }
 
-function renderTrainings(trainings) {
-  const container = document.getElementById('trainings-dynamic');
+  competitions.forEach((evt, index) => {
+    // Görsel bağlantısı location alanında saklanır
+    const imageUrl = evt.location && evt.location !== '-' ? evt.location : '';
+
+    const item = document.createElement('div');
+    item.className = 'marquee-item';
+    item.innerHTML = `
+      <div class="project-card" style="position: relative; width: min(350px, 82vw); display: flex; flex-direction: column; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; overflow: hidden; height: 100%;">
+        ${imageUrl
+          ? `<img src="${escapeHTML(imageUrl)}" alt="${escapeHTML(evt.title)}" style="width: 100%; height: 200px; object-fit: contain; background: #000000; padding: 15px;">`
+          : `<div style="height:200px; background:#000000; display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-trophy fa-3x" style="color:var(--glow)"></i></div>`}
+        <div class="project-content" style="padding: 20px; text-align: left; flex: 1;">
+          <h3 style="margin-bottom: 10px; color: var(--text-primary); font-size: 1.3rem;">${escapeHTML(evt.title)}</h3>
+          <p style="font-size: 0.95rem; line-height: 1.5; color: var(--text-secondary);">${escapeHTML(evt.description)}</p>
+        </div>
+      </div>
+    `;
+
+    if (isAdmin()) {
+      item.querySelector('.project-card').appendChild(buildAdminControls({
+        onEdit: () => openCompetitionForm(evt),
+        onDelete: () => confirmDelete('Bu yarışmayı silmek', `/events/${evt.id}`),
+        onMoveUp: () => reorderItems(competitions, index, -1, '/events', ORDER_BASE.competition),
+        onMoveDown: () => reorderItems(competitions, index, 1, '/events', ORDER_BASE.competition),
+      }, { isFirst: index === 0, isLast: index === competitions.length - 1 }));
+    }
+
+    track.appendChild(item);
+  });
+
+  Marquee.refresh(track);
+}
+
+function openCompetitionForm(existing = null) {
+  const editing = Boolean(existing);
+  const currentImage = existing && existing.location !== '-' ? existing.location : '';
+
+  openAdminForm({
+    title: editing ? 'Yarışmayı Düzenle' : 'Yeni Yarışma Ekle',
+    icon: 'fa-trophy',
+    values: { ...(existing || {}), image: currentImage },
+    fields: [
+      { name: 'title', label: 'Yarışma Adı', required: true },
+      { name: 'description', label: 'Açıklama', type: 'textarea', rows: 5, required: true },
+      { name: 'image', label: 'Yarışma Logosu', type: 'image' },
+    ],
+    onSubmit: async (data) => {
+      const payload = {
+        title: data.title,
+        description: data.description,
+        date: existing ? toDateInputValue(existing.date) : new Date().toISOString().split('T')[0],
+        location: data.image || '-',
+        content: '-',
+        event_type: EVENT_KIND.COMPETITION,
+      };
+
+      const ok = editing
+        ? await apiSend('PUT', `/events/${existing.id}`, payload, 'Yarışma güncellenemedi.')
+        : await apiSend('POST', '/events/', { ...payload, slug: slugify(data.title) }, 'Yarışma eklenemedi.');
+
+      if (ok) await loadAndRenderAll();
+      return ok;
+    },
+  });
+}
+
+// ===========================================================================
+// DUYURULAR
+// ===========================================================================
+/** Duyuru detayları content alanında JSON olarak saklanır. */
+function parseAnnouncementDetails(announcement) {
+  const details = { status: '', date: '', location: '', image_url: '' };
+  try {
+    if (announcement.content && announcement.content.trim().startsWith('{')) {
+      return { ...details, ...JSON.parse(announcement.content) };
+    }
+  } catch (e) {
+    console.error('Duyuru detayı çözülemedi:', e);
+  }
+  return details;
+}
+
+function renderAnnouncements(announcements) {
+  const track = document.getElementById('announcements-dynamic-track');
+  if (!track) return;
+
+  track.innerHTML = '';
+
+  if (announcements.length === 0) {
+    track.innerHTML = emptyStateHtml('Henüz bir duyuru eklenmemiş.');
+    Marquee.refresh(track);
+    return;
+  }
+
+  announcements.forEach((a, index) => {
+    const details = parseAnnouncementDetails(a);
+
+    const item = document.createElement('div');
+    item.className = 'marquee-item';
+    item.innerHTML = `
+      <div class="upcoming-card">
+        <div class="upcoming-image">
+          ${details.status ? `<div class="upcoming-status">${escapeHTML(details.status)}</div>` : ''}
+          ${details.image_url
+            ? `<img src="${escapeHTML(details.image_url)}" alt="${escapeHTML(a.title)}">`
+            : `<div style="font-size: 3rem; color: var(--glow);"><i class="fa-solid fa-bullhorn"></i></div>`}
+        </div>
+        <div class="upcoming-content">
+          <h3>${escapeHTML(a.title)}</h3>
+          <p>${escapeHTML(a.summary)}</p>
+          <div class="upcoming-meta">
+            <span><i class="fa-regular fa-calendar"></i> ${escapeHTML(details.date || 'Belirtilmedi')}</span>
+            <span><i class="fa-solid fa-location-dot"></i> ${escapeHTML(details.location || 'Belirtilmedi')}</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    if (isAdmin()) {
+      item.querySelector('.upcoming-card').appendChild(buildAdminControls({
+        onEdit: () => openAnnouncementForm(a),
+        onDelete: () => confirmDelete('Bu duyuruyu silmek', `/announcements/${a.id}`),
+        onMoveUp: () => reorderItems(announcements, index, -1, '/announcements'),
+        onMoveDown: () => reorderItems(announcements, index, 1, '/announcements'),
+      }, { isFirst: index === 0, isLast: index === announcements.length - 1 }));
+    }
+
+    track.appendChild(item);
+  });
+
+  Marquee.refresh(track);
+}
+
+function openAnnouncementForm(existing = null) {
+  const editing = Boolean(existing);
+  const details = existing ? parseAnnouncementDetails(existing) : {};
+
+  openAdminForm({
+    title: editing ? 'Duyuruyu Düzenle' : 'Yeni Duyuru Ekle',
+    icon: 'fa-bullhorn',
+    values: {
+      title: existing?.title || '',
+      summary: existing?.summary || '',
+      image_url: details.image_url || '',
+      status: details.status || '',
+      date: details.date || '',
+      location: details.location || '',
+    },
+    fields: [
+      { name: 'title', label: 'Başlık', required: true, placeholder: 'Örn: Datathon 2026' },
+      { name: 'summary', label: 'Açıklama', type: 'textarea', rows: 4, required: true },
+      { name: 'image_url', label: 'Görsel', type: 'image' },
+      { name: 'status', label: 'Rozet (Durum)', placeholder: 'Örn: Yakında', default: 'Yakında' },
+      { name: 'date', label: 'Tarih', placeholder: 'Örn: Aralık 2026' },
+      { name: 'location', label: 'Konum', placeholder: 'Örn: Kongre Merkezi' },
+    ],
+    onSubmit: async (data) => {
+      const payload = {
+        title: data.title,
+        summary: data.summary,
+        content: JSON.stringify({
+          status: data.status,
+          date: data.date,
+          location: data.location,
+          image_url: data.image_url,
+        }),
+        is_active: true,
+      };
+
+      const ok = editing
+        ? await apiSend('PUT', `/announcements/${existing.id}`, payload, 'Duyuru güncellenemedi.')
+        : await apiSend('POST', '/announcements/', {
+            ...payload,
+            slug: `${slugify(data.title)}-${Date.now()}`,
+          }, 'Duyuru eklenemedi.');
+
+      if (ok) await loadAndRenderAll();
+      return ok;
+    },
+  });
+}
+
+// ===========================================================================
+// STANT PROJELERİ
+// ===========================================================================
+function renderProjects(projects) {
+  const container = document.getElementById('projects-dynamic');
   if (!container) return;
 
-  const isAdmin = document.body.classList.contains('admin-mode');
   container.innerHTML = '';
 
-  trainings.forEach((t) => {
+  if (projects.length === 0) {
+    container.innerHTML = `<div style="color: var(--text-muted); text-align:center; grid-column: 1 / -1;">Henüz bir proje eklenmemiş.</div>`;
+    return;
+  }
+
+  projects.forEach((p, index) => {
+    // Değer "fa-" ile başlıyorsa ikon, değilse görsel olarak basılır
+    let imageHtml;
+    if (p.image_url && p.image_url.startsWith('fa-')) {
+      imageHtml = `<i class="${escapeHTML(p.image_url)}"></i>`;
+    } else if (p.image_url) {
+      imageHtml = `<img src="${escapeHTML(p.image_url)}" alt="${escapeHTML(p.title)}" style="width: 100%; height: 100%; object-fit: cover;">`;
+    } else {
+      imageHtml = '<i class="fa-solid fa-robot"></i>';
+    }
+
+    const tagsHtml = p.tags
+      ? p.tags.split(',').map(t => `<span>${escapeHTML(t.trim())}</span>`).join('')
+      : '';
+
+    let linksHtml = '';
+    if (p.github_url) linksHtml += `<a href="${escapeHTML(p.github_url)}" target="_blank" rel="noopener" style="color: var(--glow); font-size: 1.2rem; margin-right:12px;" title="GitHub"><i class="fa-brands fa-github"></i></a>`;
+    if (p.demo_url) linksHtml += `<a href="${escapeHTML(p.demo_url)}" target="_blank" rel="noopener" style="color: var(--glow); font-size: 1.2rem;" title="Canlı Demo"><i class="fa-solid fa-up-right-from-square"></i></a>`;
+
     const card = document.createElement('div');
-    card.className = 'training-card dynamic-training';
+    card.className = 'project-card scroll-reveal revealed';
+    card.style.position = 'relative';
     card.innerHTML = `
-      <h4 class="training-card__title">${escapeHTML(t.title)}</h4>
-      <p class="training-card__desc">${escapeHTML(t.location)}</p>
-      <div class="training-card__meta">
-        <span>📅 ${escapeHTML(t.date)}</span>
-        <span>👤 ${escapeHTML(t.instructor || 'Eğitmen Belirtilmemiş')}</span>
+      <div class="project-image">${imageHtml}</div>
+      <div class="project-content">
+        <h3>${escapeHTML(p.title)}</h3>
+        <p>${escapeHTML(p.description)}</p>
+        <div class="project-tech" style="margin-bottom: 15px;">${tagsHtml}</div>
+        <div class="project-links">${linksHtml}</div>
       </div>
-      ${isAdmin ? `<button class="admin-delete-btn" data-id="${t.id}" title="Sil">✕</button>` : ''}
     `;
+
+    if (isAdmin()) {
+      card.appendChild(buildAdminControls({
+        onEdit: () => openProjectForm(p),
+        onDelete: () => confirmDelete('Bu projeyi silmek', `/projects/${p.id}`),
+        onMoveUp: () => reorderProjects(projects, index, -1),
+        onMoveDown: () => reorderProjects(projects, index, 1),
+      }, { isFirst: index === 0, isLast: index === projects.length - 1 }));
+    }
+
     container.appendChild(card);
   });
-
-  if (isAdmin) {
-    container.querySelectorAll('.admin-delete-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (confirm('Bu eğitimi silmek istediğinize emin misiniz?')) {
-          deleteCalendarEvent(btn.dataset.id); // Eğitimler de event tablosunda
-        }
-      });
-    });
-  }
 }
 
-function openTrainingForm() {
-  if (document.querySelector('.admin-training-form')) return;
+/**
+ * Projelerde order_index sütunu yok; liste id'ye göre azalan sırada gelir.
+ * Bu yüzden sıralama, iki kaydın id'lerini takas edemeyeceğimiz için
+ * başlık/açıklama takası yerine kayıtların tüm alanlarının yer değiştirmesiyle
+ * yapılır (görsel sonuç kullanıcı için aynıdır).
+ */
+async function reorderProjects(projects, index, direction) {
+  const target = index + direction;
+  if (target < 0 || target >= projects.length) return;
 
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-training-form';
-  form.innerHTML = `
-    <h4>Yeni Eğitim</h4>
-    <label>Başlık <input type="text" id="training-title" required /></label>
-    <label>Açıklama (Konum) <textarea id="training-description" rows="3" required></textarea></label>
-    <label>Tarih <input type="date" id="training-date" required /></label>
-    <label>Eğitmen <input type="text" id="training-instructor" required /></label>
-    <div class="admin-form-actions">
-      <button type="button" id="training-submit-btn" class="admin-btn">Ekle</button>
-      <button type="button" id="training-cancel-btn" class="admin-btn admin-btn--secondary">İptal</button>
-    </div>
-  `;
+  const a = projects[index];
+  const b = projects[target];
 
-  const addBtn = document.querySelector('.admin-add-training-btn');
-  addBtn?.parentNode?.insertBefore(form, addBtn.nextSibling);
-
-  document.getElementById('training-submit-btn')?.addEventListener('click', () => {
-    const title = document.getElementById('training-title')?.value.trim();
-    const location = document.getElementById('training-description')?.value.trim(); // Modellerimizde location olduğu için açıklamayı oraya basıyoruz
-    const date = document.getElementById('training-date')?.value;
-    const instructor = document.getElementById('training-instructor')?.value.trim();
-
-    if (!title || !location || !date || !instructor) return alert('Lütfen tüm alanları doldurun.');
-
-    addCalendarEvent({ title, date, location, event_type: 'Eğitim', instructor });
-    form.remove();
+  const swap = (source) => ({
+    title: source.title,
+    description: source.description,
+    tags: source.tags,
+    image_url: source.image_url,
+    github_url: source.github_url,
+    demo_url: source.demo_url,
+    is_featured: source.is_featured,
   });
 
-  document.getElementById('training-cancel-btn')?.addEventListener('click', () => form.remove());
+  const results = await Promise.all([
+    apiSend('PUT', `/projects/${a.id}`, swap(b), 'Sıralama kaydedilemedi.'),
+    apiSend('PUT', `/projects/${b.id}`, swap(a), 'Sıralama kaydedilemedi.'),
+  ]);
+
+  if (results.every(Boolean)) await loadAndRenderAll();
 }
 
-// ---------------------------------------------------------------------------
-//  Utilities & Initialization
-// ---------------------------------------------------------------------------
+function openProjectForm(existing = null) {
+  const editing = Boolean(existing);
 
-function escapeHTML(str = '') {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
+  openAdminForm({
+    title: editing ? 'Projeyi Düzenle' : 'Yeni Proje Ekle',
+    icon: 'fa-diagram-project',
+    values: existing || {},
+    fields: [
+      { name: 'title', label: 'Proje Adı', required: true },
+      { name: 'description', label: 'Açıklama', type: 'textarea', rows: 4, required: true },
+      { name: 'tags', label: 'Etiketler', placeholder: 'Örn: Python, PyTorch, React', hint: 'Virgülle ayırın.' },
+      { name: 'image_url', label: 'Proje Görseli', type: 'image', allowIcon: true, placeholder: 'Örn: fa-solid fa-server' },
+      { name: 'github_url', label: 'GitHub URL' },
+      { name: 'demo_url', label: 'Canlı Demo URL' },
+    ],
+    onSubmit: async (data) => {
+      const payload = {
+        title: data.title,
+        description: data.description,
+        tags: data.tags || null,
+        image_url: data.image_url || null,
+        github_url: data.github_url || null,
+        demo_url: data.demo_url || null,
+        is_featured: true,
+      };
 
-function init() {
-  if (localStorage.getItem(LS_ADMIN_STATE) === 'true') {
-    activateAdminMode();
-  } else {
-    loadAndRenderAll();
-  }
-}
+      const ok = editing
+        ? await apiSend('PUT', `/projects/${existing.id}`, payload, 'Proje güncellenemedi.')
+        : await apiSend('POST', '/projects/', payload, 'Proje eklenemedi.');
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
-}
-/** 
- * Veritabanından gelen karmaşık tarih formatını şık bir formata çevirir 
- */
-function formatDateForDisplay(dateStr) {
-    if (!dateStr) return "-";
-    
-    // Eğer tarih "2026-07-25T00:00:00" gibi geliyorsa sadece ilk kısmını alalım
-    const datePart = dateStr.split("T")[0];
-    const [y, m, d] = datePart.split("-");
-    
-    const months = {
-        '01': 'Ocak', '02': 'Şubat', '03': 'Mart', '04': 'Nisan',
-        '05': 'Mayıs', '06': 'Haziran', '07': 'Temmuz', '08': 'Ağustos',
-        '09': 'Eylül', '10': 'Ekim', '11': 'Kasım', '12': 'Aralık'
-    };
-    
-    return `${parseInt(d)} ${months[m] || ''} ${y}`;
-}
-
-// ===========================================================================
-// EKİP ÜYELERİ (BOARD MEMBERS) İŞLEMLERİ
-// ===========================================================================
-
-// 1. Üyeleri API'den Çek
-async function fetchBoardMembers() {
-  try {
-    const res = await fetch(`${API_URL}/board-members`);
-    if (!res.ok) return [];
-    return await res.json();
-  } catch (err) {
-    console.error("Ekip üyeleri çekilemedi:", err);
-    return [];
-  }
+      if (ok) await loadAndRenderAll();
+      return ok;
+    },
+  });
 }
 
 // ===========================================================================
-// EKİP ÜYELERİ (BOARD MEMBERS) İŞLEMLERİ
+// YÖNETİM KURULU
 // ===========================================================================
-
-// 2. Yeni Üye Ekle
-async function addBoardMember(data) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  try {
-    const res = await fetch(`${API_URL}/board-members/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Üye eklenemedi.');
-    }
-    loadAndRenderAll();
-  } catch (error) {
-    alert("Ekip üyesi eklenirken hata oluştu: " + error.message);
-  }
-}
-
-// 3. Üye Sil
-async function deleteBoardMember(id) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  try {
-    const res = await fetch(`${API_URL}/board-members/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Üye silinemedi.');
-    }
-    loadAndRenderAll();
-  } catch (error) {
-    alert("Ekip üyesi silinirken hata oluştu: " + error.message);
-  }
-}
-
-// 4. Üyeleri Gruplayarak Ekrana Bas
 function renderBoardMembers(members) {
   const container = document.getElementById('team-dynamic');
   if (!container) return;
 
-  const isAdmin = document.body.classList.contains('admin-mode');
-  container.innerHTML = ''; 
-  
+  container.innerHTML = '';
   container.style.display = 'block';
 
   const groups = {
@@ -620,1332 +1134,421 @@ function renderBoardMembers(members) {
     medya: { direktor: [], koordinator: [] },
     arge: { direktor: [], koordinator: [] },
     organizasyon: { direktor: [], koordinator: [] },
-    denetim: []
+    denetim: [],
   };
 
   members.forEach(m => {
-    const role = (m.role || '').toLowerCase(); 
-    
-    // GÜNCELLEME 1: "direkt" kelimesini aratarak "Direktörü", "Direktör" vb. hepsini garanti kapsıyoruz
+    const role = (m.role || '').toLowerCase();
+    // "direkt" araması "Direktör", "Direktörü" gibi tüm varyasyonları kapsar
     const isDirector = role.includes('direkt');
 
-    if (role.includes('başkan') || role.includes('baskan')) {
-      groups.baskanlik.push(m);
-    } else if (role.includes('kurumsal')) {
-      if (isDirector) groups.kurumsal.direktor.push(m);
-      else groups.kurumsal.koordinator.push(m);
-    } else if (role.includes('eğitim') || role.includes('egitim')) {
-      if (isDirector) groups.egitim.direktor.push(m);
-      else groups.egitim.koordinator.push(m);
-    } else if (role.includes('medya') || role.includes('tanıtım') || role.includes('tanitim')) {
-      if (isDirector) groups.medya.direktor.push(m);
-      else groups.medya.koordinator.push(m);
-    } else if (role.includes('ar-ge') || role.includes('arge')) {
-      if (isDirector) groups.arge.direktor.push(m);
-      else groups.arge.koordinator.push(m);
-    } else if (role.includes('organizasyon')) {
-      if (isDirector) groups.organizasyon.direktor.push(m);
-      else groups.organizasyon.koordinator.push(m);
-    } else if (role.includes('denetim')) {
-      groups.denetim.push(m);
-    } else {
-      groups.baskanlik.push(m); 
-    }
+    if (role.includes('başkan') || role.includes('baskan')) groups.baskanlik.push(m);
+    else if (role.includes('kurumsal')) (isDirector ? groups.kurumsal.direktor : groups.kurumsal.koordinator).push(m);
+    else if (role.includes('eğitim') || role.includes('egitim')) (isDirector ? groups.egitim.direktor : groups.egitim.koordinator).push(m);
+    else if (role.includes('medya') || role.includes('tanıtım') || role.includes('tanitim')) (isDirector ? groups.medya.direktor : groups.medya.koordinator).push(m);
+    else if (role.includes('ar-ge') || role.includes('arge')) (isDirector ? groups.arge.direktor : groups.arge.koordinator).push(m);
+    else if (role.includes('organizasyon')) (isDirector ? groups.organizasyon.direktor : groups.organizasyon.koordinator).push(m);
+    else if (role.includes('denetim')) groups.denetim.push(m);
+    else groups.baskanlik.push(m);
   });
 
   const createCard = (m) => {
-    const roleText = (m.role || '');
+    const roleText = m.role || '';
     const isPresident = roleText.toLowerCase().includes('başkan') && !roleText.toLowerCase().includes('yardımcı');
-    const cardClass = isPresident ? 'team-card team-card-president' : 'team-card';
-    
-    const photoHtml = m.image_url 
-        ? `<img src="${m.image_url}" alt="${escapeHTML(m.full_name)}" style="width: 100%; height: 100%; object-fit: cover;">`
-        : `<div class="team-photo-placeholder"><i class="fa-solid fa-user"></i></div>`;
+
+    const photoHtml = m.image_url
+      ? `<img src="${escapeHTML(m.image_url)}" alt="${escapeHTML(m.full_name)}" style="width: 100%; height: 100%; object-fit: cover;">`
+      : '<div class="team-photo-placeholder"><i class="fa-solid fa-user"></i></div>';
 
     let socialHtml = '';
-    if (m.linkedin_url) socialHtml += `<a href="${m.linkedin_url}" target="_blank" rel="noopener" class="team-linkedin" title="LinkedIn"><i class="fa-brands fa-linkedin"></i></a>`;
-    if (m.github_url) socialHtml += `<a href="${m.github_url}" target="_blank" rel="noopener" class="team-linkedin" style="margin-left: 8px;" title="GitHub"><i class="fa-brands fa-github"></i></a>`;
+    if (m.linkedin_url) socialHtml += `<a href="${escapeHTML(m.linkedin_url)}" target="_blank" rel="noopener" class="team-linkedin" title="LinkedIn"><i class="fa-brands fa-linkedin"></i></a>`;
+    if (m.github_url) socialHtml += `<a href="${escapeHTML(m.github_url)}" target="_blank" rel="noopener" class="team-linkedin" style="margin-left: 8px;" title="GitHub"><i class="fa-brands fa-github"></i></a>`;
 
-    return `
-      <div class="${cardClass} scroll-reveal revealed" style="margin: 10px; position: relative;">
-        <div class="team-photo">${photoHtml}</div>
-        <h3 class="team-name">${escapeHTML(m.full_name)}</h3>
-        <p class="team-role" style="color: var(--glow);">${escapeHTML(roleText)}</p>
-        <div class="team-social" style="margin-top: 10px;">${socialHtml}</div>
-        ${isAdmin ? `<button class="admin-delete-btn" data-id="${m.id}" title="Sil" style="position:absolute; top:12px; right:12px; background: rgba(239, 83, 80, 0.9); z-index: 10;">✕</button>` : ''}
-      </div>
+    const card = document.createElement('div');
+    card.className = `team-card${isPresident ? ' team-card-president' : ''} scroll-reveal revealed`;
+    card.style.cssText = 'margin: 10px; position: relative;';
+    card.innerHTML = `
+      <div class="team-photo">${photoHtml}</div>
+      <h3 class="team-name">${escapeHTML(m.full_name)}</h3>
+      <p class="team-role" style="color: var(--glow);">${escapeHTML(roleText)}</p>
+      <div class="team-social" style="margin-top: 10px;">${socialHtml}</div>
     `;
+
+    if (isAdmin()) {
+      const index = members.indexOf(m);
+      card.appendChild(buildAdminControls({
+        onEdit: () => openMemberForm(m),
+        onDelete: () => confirmDelete('Bu ekip üyesini silmek', `/board-members/${m.id}`),
+        onMoveUp: () => reorderItems(members, index, -1, '/board-members'),
+        onMoveDown: () => reorderItems(members, index, 1, '/board-members'),
+      }, { isFirst: index === 0, isLast: index === members.length - 1 }));
+    }
+
+    return card;
   };
 
   const renderSection = (title, topRow, bottomRow) => {
-    let html = '';
-    
-    if ((topRow && topRow.length > 0) || (bottomRow && bottomRow.length > 0)) {
-        // GÜNCELLEME 2: flex-direction: column ve width: 100% vererek iki satırı kesinlikle ALT ALTA inmeye zorluyoruz.
-        html += `<div style="display: flex; flex-direction: column; align-items: center; width: 100%; margin-bottom: 50px;">`;
-        
-        if (title) {
-            html += `<h3 style="width:100%; text-align:center; margin-bottom: 30px; font-size: 1.8rem; color: var(--glow); letter-spacing: 1px; text-transform: uppercase;">${title}</h3>`;
-        }
-        
-        // ÜST SATIR (Direktörler)
-        if (topRow && topRow.length > 0) {
-          html += `<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; width: 100%; margin-bottom: 20px;">`;
-          topRow.forEach(m => html += createCard(m));
-          html += `</div>`;
-        }
-        
-        // ALT SATIR (Koordinatörler)
-        if (bottomRow && bottomRow.length > 0) {
-          html += `<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; width: 100%;">`;
-          bottomRow.forEach(m => html += createCard(m));
-          html += `</div>`;
-        }
-        
-        html += `</div>`;
+    const top = topRow || [];
+    const bottom = bottomRow || [];
+    if (top.length === 0 && bottom.length === 0) return;
+
+    const section = document.createElement('div');
+    section.style.cssText = 'display: flex; flex-direction: column; align-items: center; width: 100%; margin-bottom: 50px;';
+
+    if (title) {
+      const heading = document.createElement('h3');
+      heading.style.cssText = 'width:100%; text-align:center; margin-bottom: 30px; font-size: 1.8rem; color: var(--glow); letter-spacing: 1px; text-transform: uppercase;';
+      heading.textContent = title;
+      section.appendChild(heading);
     }
-    return html;
+
+    [top, bottom].forEach((row, rowIndex) => {
+      if (row.length === 0) return;
+      const rowEl = document.createElement('div');
+      rowEl.style.cssText = `display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; width: 100%;${rowIndex === 0 ? ' margin-bottom: 20px;' : ''}`;
+      row.forEach(m => rowEl.appendChild(createCard(m)));
+      section.appendChild(rowEl);
+    });
+
+    container.appendChild(section);
   };
 
-  let finalHtml = '';
-
   groups.baskanlik.sort((a, b) => (a.role || '').length - (b.role || '').length);
-  finalHtml += renderSection('', groups.baskanlik, null);
-
-  finalHtml += renderSection('KURUMSAL İLİŞKİLER KOMİSYONU', groups.kurumsal.direktor, groups.kurumsal.koordinator);
-  finalHtml += renderSection('EĞİTİM KOMİSYONU', groups.egitim.direktor, groups.egitim.koordinator);
-  finalHtml += renderSection('MEDYA TANITIM KOMİSYONU', groups.medya.direktor, groups.medya.koordinator);
-  finalHtml += renderSection('AR-GE KOMİSYONU', groups.arge.direktor, groups.arge.koordinator);
-  finalHtml += renderSection('ORGANİZASYON KOMİSYONU', groups.organizasyon.direktor, groups.organizasyon.koordinator);
-  finalHtml += renderSection('DENETİM KURULU', groups.denetim, null);
-
-  container.innerHTML = finalHtml;
-
-  if (isAdmin) {
-    container.querySelectorAll('.admin-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        if (confirm('Bu ekip üyesini silmek istediğinize emin misiniz?')) {
-          await deleteBoardMember(btn.dataset.id);
-        }
-      });
-    });
-  }
+  renderSection('', groups.baskanlik, null);
+  renderSection('KURUMSAL İLİŞKİLER KOMİSYONU', groups.kurumsal.direktor, groups.kurumsal.koordinator);
+  renderSection('EĞİTİM KOMİSYONU', groups.egitim.direktor, groups.egitim.koordinator);
+  renderSection('MEDYA TANITIM KOMİSYONU', groups.medya.direktor, groups.medya.koordinator);
+  renderSection('AR-GE KOMİSYONU', groups.arge.direktor, groups.arge.koordinator);
+  renderSection('ORGANİZASYON KOMİSYONU', groups.organizasyon.direktor, groups.organizasyon.koordinator);
+  renderSection('DENETİM KURULU', groups.denetim, null);
 }
 
-// 5. Orijinal Üye Ekle Butonunu Aktifleştirme
-document.getElementById('admin-add-member-btn')?.addEventListener('click', () => {
-  if (document.querySelector('.admin-member-form')) return;
+function openMemberForm(existing = null) {
+  const editing = Boolean(existing);
 
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-member-form';
-  form.style.margin = "20px auto";
-  form.style.maxWidth = "800px";
-  form.innerHTML = `
-    <h4>Yeni Ekip Üyesi Ekle</h4>
-    <label>Ad Soyad *<input type="text" id="member-name" required /></label>
-    <label>Görev (Rol) *<input type="text" id="member-role" required /></label>
-    <label>Dönem *<input type="text" id="member-period" required /></label>
-    
-    <div style="background: rgba(79, 195, 247, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0;">
-        <label style="color: var(--glow);">Fotoğraf Yükle (Bilgisayardan) <input type="file" id="member-file" accept="image/*" /></label>
-        <div style="text-align: center; margin: 5px 0;">VEYA</div>
-        <label>Fotoğraf URL / İkon <input type="text" id="member-image" placeholder="Resim linki veya ikon kodu" /></label>
-    </div>
+  openAdminForm({
+    title: editing ? 'Ekip Üyesini Düzenle' : 'Yeni Ekip Üyesi Ekle',
+    icon: 'fa-user-plus',
+    values: existing || {},
+    fields: [
+      { name: 'full_name', label: 'Ad Soyad', required: true },
+      { name: 'role', label: 'Görev (Rol)', required: true, hint: 'Komisyon adını içermeli. Örn: Ar-Ge Komisyonu Direktörü' },
+      { name: 'period', label: 'Dönem', required: true, placeholder: 'Örn: 2026-2027' },
+      { name: 'image_url', label: 'Fotoğraf', type: 'image' },
+      { name: 'linkedin_url', label: 'LinkedIn URL' },
+      { name: 'github_url', label: 'GitHub URL' },
+    ],
+    onSubmit: async (data) => {
+      const payload = {
+        full_name: data.full_name,
+        role: data.role,
+        period: data.period,
+        image_url: data.image_url || null,
+        linkedin_url: data.linkedin_url || null,
+        github_url: data.github_url || null,
+        order_index: existing?.order_index ?? 0,
+      };
 
-    <label>LinkedIn URL <input type="text" id="member-linkedin" /></label>
-    <label>GitHub URL <input type="text" id="member-github" /></label>
-    <div class="admin-form-actions">
-      <button type="button" id="member-submit-btn" class="admin-btn">Ekle</button>
-      <button type="button" id="member-cancel-btn" class="admin-btn admin-btn--secondary">İptal</button>
-    </div>
-  `;
+      const ok = editing
+        ? await apiSend('PUT', `/board-members/${existing.id}`, payload, 'Üye güncellenemedi.')
+        : await apiSend('POST', '/board-members/', payload, 'Üye eklenemedi.');
 
-  // Formu HTML'de zaten var olan orijinal butonun hemen üstünde aç
-  const addBtn = document.getElementById('admin-add-member-btn');
-  addBtn.parentNode.insertBefore(form, addBtn);
-
-  document.getElementById('member-submit-btn').addEventListener('click', async () => {
-    const submitBtn = document.getElementById('member-submit-btn');
-    const fileInput = document.getElementById('member-file');
-    let imageUrl = document.getElementById('member-image').value.trim();
-    
-    const full_name = document.getElementById('member-name').value.trim();
-    const role = document.getElementById('member-role').value.trim();
-    const period = document.getElementById('member-period').value.trim();
-
-    if (!full_name || !role || !period) {
-        return alert('Ad Soyad, Görev ve Dönem alanları zorunludur.');
-    }
-
-    if (fileInput.files.length > 0) {
-        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Yükleniyor...';
-        submitBtn.disabled = true;
-        
-        const uploadedUrl = await uploadImage(fileInput.files[0]);
-        if (!uploadedUrl) {
-            submitBtn.innerHTML = 'Ekle';
-            submitBtn.disabled = false;
-            return; 
-        }
-        imageUrl = uploadedUrl; 
-    }
-
-    const data = {
-        full_name, role, period,
-        image_url: imageUrl || null,
-        linkedin_url: document.getElementById('member-linkedin').value.trim() || null,
-        github_url: document.getElementById('member-github').value.trim() || null,
-        order_index: 0
-    };
-
-    await addBoardMember(data);
-    form.remove();
+      if (ok) await loadAndRenderAll();
+      return ok;
+    },
   });
-
-  document.getElementById('member-cancel-btn').addEventListener('click', () => form.remove());
-});
+}
 
 // ===========================================================================
-// PROJELER (PROJECTS) İŞLEMLERİ
+// İŞ BİRLİKLERİ & AI FEST PAYDAŞLARI (ortak render)
 // ===========================================================================
-
-// 1. Projeleri API'den Çek
-async function fetchProjects() {
-  try {
-    const res = await fetch(`${API_URL}/projects`);
-    if (!res.ok) return [];
-    return await res.json();
-  } catch (err) {
-    console.error("Projeler çekilemedi:", err);
-    return [];
-  }
-}
-
-// 2. Projeleri Ekrana Bas
-function renderProjects(projects) {
-  const container = document.getElementById('projects-dynamic');
-  if (!container) return;
-
-  const isAdmin = document.body.classList.contains('admin-mode');
-  container.innerHTML = ''; 
-
-  projects.forEach(p => {
-    // --- BURASI DEĞİŞTİ: Akıllı İkon / Resim Kontrolü ---
-    let imageHtml = '';
-    if (p.image_url && p.image_url.startsWith('fa-')) {
-      // Eğer girilen değer 'fa-' ile başlıyorsa FontAwesome ikonu olarak bas
-      imageHtml = `<i class="${escapeHTML(p.image_url)}"></i>`;
-    } else if (p.image_url) {
-      // Normal bir link girildiyse resim olarak bas
-      imageHtml = `<img src="${p.image_url}" alt="${escapeHTML(p.title)}" style="width: 100%; height: 100%; object-fit: cover;">`;
-    } else {
-      // Hiçbir şey girilmediyse varsayılan robot ikonu çıksın
-      imageHtml = `<i class="fa-solid fa-robot"></i>`;
-    }
-    // ---------------------------------------------------
-
-    // Etiketleri (tags) ayırıp bas (Örn: "Python, FastAPI" -> <span>Python</span><span>FastAPI</span>)
-    let tagsHtml = '';
-    if (p.tags) {
-      const tagsArray = p.tags.split(',').map(t => t.trim());
-      tagsHtml = tagsArray.map(t => `<span>${escapeHTML(t)}</span>`).join('');
-    }
-
-    // GitHub ve Demo Linkleri
-    let linksHtml = '';
-    if (p.github_url) linksHtml += `<a href="${p.github_url}" target="_blank" style="color: var(--glow); font-size: 1.2rem; margin-right:12px;" title="GitHub"><i class="fa-brands fa-github"></i></a>`;
-    if (p.demo_url) linksHtml += `<a href="${p.demo_url}" target="_blank" style="color: var(--glow); font-size: 1.2rem;" title="Canlı Demo"><i class="fa-solid fa-up-right-from-square"></i></a>`;
-
-    const card = document.createElement('div');
-    card.className = 'project-card scroll-reveal revealed'; // Animasyon takılmaması için revealed eklendi
-    card.innerHTML = `
-      <div class="project-image">
-        ${imageHtml}
-      </div>
-      <div class="project-content" style="position: relative;">
-        ${isAdmin ? `<button class="admin-delete-btn" data-id="${p.id}" title="Sil" style="position:absolute; top: -45px; right: 10px; background: rgba(239, 83, 80, 0.9); z-index: 10;">✕</button>` : ''}
-        <h3>${escapeHTML(p.title)}</h3>
-        <p>${escapeHTML(p.description)}</p>
-        <div class="project-tech" style="margin-bottom: 15px;">
-          ${tagsHtml}
-        </div>
-        <div class="project-links">
-          ${linksHtml}
-        </div>
-      </div>
-    `;
-    container.appendChild(card);
-  });
-
-  // Silme Butonlarına Olay Dinleyicisi Ekle
-  if (isAdmin) {
-    container.querySelectorAll('.admin-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        if (confirm('Bu projeyi silmek istediğinize emin misiniz?')) {
-          await deleteProject(btn.dataset.id);
-        }
-      });
-    });
-  }
-}
-
-// 3. Proje Sil
-async function deleteProject(id) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  try {
-    await fetch(`${API_URL}/projects/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    loadAndRenderAll();
-  } catch (error) {
-    alert("Proje silinemedi.");
-  }
-}
-
-// 4. Proje Ekle
-async function addProject(data) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  try {
-    await fetch(`${API_URL}/projects/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(data)
-    });
-    loadAndRenderAll();
-  } catch (error) {
-    alert("Proje eklenirken hata oluştu.");
-  }
-}
-
-// 5. Admin İçin Proje Ekleme Formunu Aç
-// Admin İçin Proje Ekleme Formunu Aç
-document.getElementById('admin-add-project-btn')?.addEventListener('click', () => {
-  if (document.querySelector('.admin-project-form')) return;
-
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-project-form';
-  form.innerHTML = `
-    <h4>Yeni Proje Ekle</h4>
-    <label>Proje Adı *<input type="text" id="proj-title" required /></label>
-    <label>Açıklama *<textarea id="proj-desc" rows="3" required></textarea></label>
-    <label>Etiketler (Kullandığınız Teknolojiler, Virgülle ayırın) <input type="text" id="proj-tags" placeholder="Örn: Python, PyTorch, React" /></label>
-    
-    <!-- YENİ: DOSYA YÜKLEME ALANI -->
-    <div style="background: rgba(79, 195, 247, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0;">
-        <label style="color: var(--glow);">Proje Görseli Yükle <input type="file" id="proj-file" accept="image/*" /></label>
-        <div style="text-align: center; margin: 5px 0;">VEYA</div>
-        <label>URL / İkon <input type="text" id="proj-image" placeholder="Örn: fa-solid fa-server" /></label>
-    </div>
-
-    <label>GitHub URL <input type="text" id="proj-github" /></label>
-    <label>Canlı Demo URL <input type="text" id="proj-demo" /></label>
-    <div class="admin-form-actions">
-      <button type="button" id="proj-submit-btn" class="admin-btn">Ekle</button>
-      <button type="button" id="proj-cancel-btn" class="admin-btn admin-btn--secondary">İptal</button>
-    </div>
-  `;
-
-  const container = document.getElementById('projects-dynamic');
-  container.parentNode.insertBefore(form, container);
-
-  // 'async' ekledik çünkü resim yüklenmesini bekleyeceğiz
-  document.getElementById('proj-submit-btn').addEventListener('click', async () => {
-    const submitBtn = document.getElementById('proj-submit-btn');
-    const fileInput = document.getElementById('proj-file');
-    let imageUrl = document.getElementById('proj-image').value.trim();
-
-    const title = document.getElementById('proj-title').value.trim();
-    const description = document.getElementById('proj-desc').value.trim();
-
-    if (!title || !description) {
-        return alert('Lütfen zorunlu alanları (Proje Adı ve Açıklama) doldurun.');
-    }
-
-    // EĞER BİLGİSAYARDAN DOSYA SEÇİLMİŞSE ÖNCE ONU YÜKLE
-    if (fileInput.files.length > 0) {
-        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Yükleniyor...';
-        submitBtn.disabled = true;
-        
-        const uploadedUrl = await uploadImage(fileInput.files[0]);
-        if (!uploadedUrl) {
-            submitBtn.innerHTML = 'Ekle';
-            submitBtn.disabled = false;
-            return; // Yükleme başarısızsa durdur
-        }
-        imageUrl = uploadedUrl; // Yüklenen resmin linkini kullan
-    }
-
-    const data = {
-        title: title,
-        description: description,
-        tags: document.getElementById('proj-tags').value.trim() || null,
-        image_url: imageUrl || null,
-        github_url: document.getElementById('proj-github').value.trim() || null,
-        demo_url: document.getElementById('proj-demo').value.trim() || null,
-        is_featured: true
-    };
-
-    await addProject(data);
-    form.remove();
-  });
-
-  document.getElementById('proj-cancel-btn').addEventListener('click', () => form.remove());
-});
-
-// ===========================================================================
-// DUYURULAR (ANNOUNCEMENTS / UPCOMING EVENTS) İŞLEMLERİ
-// ===========================================================================
-
-async function fetchAnnouncements() {
-  try {
-    const res = await fetch(`${API_URL}/announcements`);
-    if (!res.ok) return [];
-    return await res.json();
-  } catch (err) {
-    console.error("Duyurular çekilemedi:", err);
-    return [];
-  }
-}
-
-function renderAnnouncements(announcements) {
-  const track = document.getElementById('announcements-dynamic-track');
+/**
+ * Logo şeritlerini basar. Logolar kare bir kutuya sıkıştırılmaz; yalnızca
+ * yükseklikleri sınırlanır, genişlik serbest bırakılır. Böylece yatay logo
+ * yatay, dikey logo dikey görünür.
+ */
+function renderPartners(items, { trackId, endpoint, emptyText, entityLabel }) {
+  const track = document.getElementById(trackId);
   if (!track) return;
 
-  const isAdmin = document.body.classList.contains('admin-mode');
   track.innerHTML = '';
 
-  if (announcements.length === 0) {
-    track.innerHTML = '<div style="color: var(--text-muted); padding: 20px; text-align:center; width:100%;">Henüz bir duyuru eklenmemiş.</div>';
+  if (items.length === 0) {
+    track.innerHTML = emptyStateHtml(emptyText);
+    Marquee.refresh(track);
     return;
   }
 
-  let groupHtml = '<div class="upcoming-group">';
+  items.forEach((item, index) => {
+    const logoHtml = item.logo_url && item.logo_url.startsWith('fa-')
+      ? `<i class="${escapeHTML(item.logo_url)}"></i>`
+      : `<img src="${escapeHTML(item.logo_url)}" alt="${escapeHTML(item.name)}" loading="lazy">`;
 
-  announcements.forEach(a => {
-    let details = { status: "Planlanan", date: "Belirtilmedi", location: "Belirtilmedi", image_url: "" };
-    try {
-      if (a.content && a.content.startsWith('{')) {
-        details = { ...details, ...JSON.parse(a.content) };
-      }
-    } catch(e) { console.error("Duyuru detayı çözülemedi"); }
+    const inner = `
+      <div class="partner-logo-box">${logoHtml}</div>
+      <span class="partner-name">${escapeHTML(item.name)}</span>
+    `;
 
-    const imageHtml = details.image_url 
-        ? `<img src="${escapeHTML(details.image_url)}" alt="${escapeHTML(a.title)}">` 
-        : `<div style="font-size: 3rem; color: var(--glow);"><i class="fa-solid fa-bullhorn"></i></div>`;
-
-    groupHtml += `
-      <div class="upcoming-card">
-        ${isAdmin ? `<button class="admin-delete-btn" data-id="${a.id}" title="Sil" style="position:absolute; top: 12px; right: 12px; background: rgba(239, 83, 80, 0.9); z-index: 10;">✕</button>` : ''}
-        
-        <div class="upcoming-image">
-            ${details.status ? `<div class="upcoming-status">${escapeHTML(details.status)}</div>` : ''}
-            ${imageHtml}
-        </div>
-        
-        <div class="upcoming-content">
-          <h3>${escapeHTML(a.title)}</h3>
-          <p>${escapeHTML(a.summary)}</p>
-          <div class="upcoming-meta">
-              <span><i class="fa-regular fa-calendar"></i> ${escapeHTML(details.date)}</span>
-              <span><i class="fa-solid fa-location-dot"></i> ${escapeHTML(details.location)}</span>
-          </div>
-        </div>
+    const wrapper = document.createElement('div');
+    wrapper.className = 'marquee-item';
+    wrapper.innerHTML = `
+      <div class="partner-item">
+        ${item.website_url
+          ? `<a href="${escapeHTML(item.website_url)}" target="_blank" rel="noopener">${inner}</a>`
+          : inner}
       </div>
     `;
+
+    if (isAdmin()) {
+      wrapper.querySelector('.partner-item').style.position = 'relative';
+      wrapper.querySelector('.partner-item').appendChild(buildAdminControls({
+        onEdit: () => openPartnerForm({ endpoint, entityLabel, existing: item }),
+        onDelete: () => confirmDelete(`Bu ${entityLabel} kaydını silmek`, `${endpoint}/${item.id}`),
+        onMoveUp: () => reorderItems(items, index, -1, endpoint),
+        onMoveDown: () => reorderItems(items, index, 1, endpoint),
+      }, { isFirst: index === 0, isLast: index === items.length - 1 }));
+    }
+
+    track.appendChild(wrapper);
   });
 
-  groupHtml += '</div>';
-  track.innerHTML = groupHtml + groupHtml;
-
-  if (isAdmin) {
-    track.querySelectorAll('.admin-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (confirm('Bu duyuruyu silmek istediğinize emin misiniz?')) {
-          await deleteAnnouncement(btn.dataset.id);
-        }
-      });
-    });
-  }
+  Marquee.refresh(track);
 }
 
-async function deleteAnnouncement(id) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  try {
-    await fetch(`${API_URL}/announcements/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    loadAndRenderAll();
-  } catch (error) {
-    alert("Duyuru silinemedi.");
-  }
-}
+function openPartnerForm({ endpoint, entityLabel, existing = null }) {
+  const editing = Boolean(existing);
+  const titleWord = entityLabel.charAt(0).toLocaleUpperCase('tr') + entityLabel.slice(1);
 
-async function addAnnouncement(data) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  try {
-    await fetch(`${API_URL}/announcements/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+  openAdminForm({
+    title: editing ? `${titleWord} Kaydını Düzenle` : `Yeni ${titleWord} Ekle`,
+    icon: 'fa-handshake',
+    values: existing || {},
+    fields: [
+      { name: 'name', label: 'Kurum / Topluluk Adı', required: true },
+      {
+        name: 'logo_url',
+        label: 'Logo',
+        type: 'image',
+        allowIcon: true,
+        required: true,
+        placeholder: 'Resim linki veya ikon (Örn: fa-solid fa-building)',
+        hint: 'Logo kare kutuya sığdırılmaz; yatay logo yatay, dikey logo dikey görünür.',
       },
-      body: JSON.stringify(data)
-    });
-    loadAndRenderAll();
-  } catch (error) {
-    alert("Duyuru eklenirken hata oluştu.");
-  }
+      { name: 'website_url', label: 'Website URL', placeholder: 'Örn: https://www.hacettepe.edu.tr' },
+    ],
+    onSubmit: async (data) => {
+      const payload = {
+        name: data.name,
+        logo_url: data.logo_url,
+        website_url: data.website_url || null,
+        order_index: existing?.order_index ?? 0,
+        is_active: true,
+      };
+      // Sponsor tablosunda ek bir "tier" alanı bulunur
+      if (endpoint === '/sponsors') payload.tier = existing?.tier || 'Standart';
+
+      const ok = editing
+        ? await apiSend('PUT', `${endpoint}/${existing.id}`, payload, 'Kayıt güncellenemedi.')
+        : await apiSend('POST', `${endpoint}/`, payload, 'Kayıt eklenemedi.');
+
+      if (ok) await loadAndRenderAll();
+      return ok;
+    },
+  });
 }
 
-// Admin İçin Yeni Tasarımlı Duyuru Ekleme Formu
-document.getElementById('admin-add-announcement-btn')?.addEventListener('click', () => {
-  if (document.querySelector('.admin-announcement-form')) return;
+// ---------------------------------------------------------------------------
+//  Silme Onayı (ortak)
+// ---------------------------------------------------------------------------
+async function confirmDelete(question, path) {
+  if (!confirm(`${question} istediğinize emin misiniz?`)) return;
+  const ok = await apiSend('DELETE', path, undefined, 'Silme işlemi başarısız.');
+  if (ok) await loadAndRenderAll();
+}
 
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-announcement-form';
-  form.style.margin = "20px auto";
-  form.style.maxWidth = "800px";
-  form.innerHTML = `
-    <h4>Yeni Duyuru / Etkinlik Ekle</h4>
-    <label>Başlık *<input type="text" id="ann-title" placeholder="Örn: Datathon 2026" required /></label>
-    <label>Açıklama (Detaylı) *<textarea id="ann-summary" rows="4" placeholder="Etkinlik açıklaması" required></textarea></label>
-    
-    <div style="background: rgba(79, 195, 247, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0;">
-        <label style="color: var(--glow);">Görsel Yükle (Üst kısımdaki siyah alana) <input type="file" id="ann-file" accept="image/*" /></label>
-        <div style="text-align: center; margin: 5px 0;">VEYA</div>
-        <label>Görsel URL <input type="text" id="ann-image" placeholder="https://..." /></label>
-    </div>
+// ---------------------------------------------------------------------------
+//  Bölüm İçi "Ekle" Butonları
+// ---------------------------------------------------------------------------
+/** HTML'de karşılığı bulunmayan (takvim / slayt) ekleme butonlarını yerleştirir. */
+function injectSectionButtons() {
+  const ensureButton = (parentSelector, className, label, handler) => {
+    const parent = document.querySelector(parentSelector);
+    if (!parent) return;
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px;">
-        <label>Rozet (Durum) <input type="text" id="ann-status" placeholder="Örn: Yakında" value="Yakında" /></label>
-        <label>Tarih <input type="text" id="ann-date" placeholder="Örn: Aralık 2026" /></label>
-        <label>Konum <input type="text" id="ann-location" placeholder="Örn: Kongre Merkezi" /></label>
-    </div>
-    <div class="admin-form-actions">
-      <button type="button" id="ann-submit-btn" class="admin-btn">Ekle</button>
-      <button type="button" id="ann-cancel-btn" class="admin-btn admin-btn--secondary">İptal</button>
-    </div>
-  `;
-
-  const addBtn = document.getElementById('admin-add-announcement-btn');
-  addBtn.parentNode.insertBefore(form, addBtn);
-
-  document.getElementById('ann-submit-btn').addEventListener('click', async () => {
-    const submitBtn = document.getElementById('ann-submit-btn');
-    const fileInput = document.getElementById('ann-file');
-    let imageUrl = document.getElementById('ann-image').value.trim();
-
-    const title = document.getElementById('ann-title').value.trim();
-    const summary = document.getElementById('ann-summary').value.trim();
-    
-    if (!title || !summary) return alert('Lütfen Başlık ve Açıklama alanlarını doldurun.');
-
-    if (fileInput.files.length > 0) {
-        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Yükleniyor...';
-        submitBtn.disabled = true;
-        const uploadedUrl = await uploadImage(fileInput.files[0]);
-        if (!uploadedUrl) {
-            submitBtn.innerHTML = 'Ekle';
-            submitBtn.disabled = false;
-            return;
-        }
-        imageUrl = uploadedUrl;
+    let btn = parent.querySelector(`.${className}`);
+    if (!isAdmin()) {
+      btn?.remove();
+      return;
     }
+    if (btn) return;
 
-    const details = {
-        status: document.getElementById('ann-status').value.trim(),
-        date: document.getElementById('ann-date').value.trim(),
-        location: document.getElementById('ann-location').value.trim(),
-        image_url: imageUrl
-    };
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `${className} btn-primary admin-only`;
+    btn.style.cssText = 'margin: 24px auto 0 auto;';
+    btn.innerHTML = `<i class="fa-solid fa-plus"></i> ${label}`;
+    btn.addEventListener('click', handler);
+    parent.appendChild(btn);
+  };
 
-    const data = {
-        title: title,
-        slug: title.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now(),
-        summary: summary,
-        content: JSON.stringify(details),
-        is_active: true
-    };
+  ensureButton('#takvim .container', 'admin-add-event-btn', 'Takvime Etkinlik Ekle', () => openEventForm());
+  ensureButton('#etkinlikler .container', 'admin-add-slider-btn', 'Slayt Ekle', () => openSliderForm());
 
-    await addAnnouncement(data);
-    form.remove();
-  });
-
-  document.getElementById('ann-cancel-btn').addEventListener('click', () => form.remove());
-});
-
-// ===========================================================================
-// İŞ BİRLİKLERİ (SPONSORS) İŞLEMLERİ
-// ===========================================================================
-
-async function fetchSponsors() {
-  try {
-    const res = await fetch(`${API_URL}/sponsors`);
-    if (!res.ok) return [];
-    return await res.json();
-  } catch (err) {
-    console.error("Sponsorlar çekilemedi:", err);
-    return [];
-  }
+  // Butonlar eklendikten sonra araç çubuğu yüksekliği değişmiş olabilir
+  syncToolbarHeight();
 }
 
-// ===========================================================================
-// İŞ BİRLİKLERİ (SPONSORS) İŞLEMLERİ
-// ===========================================================================
-
-function renderSponsors(sponsors) {
-  const track = document.getElementById('sponsors-dynamic-track');
-  if (!track) return;
-
-  const isAdmin = document.body.classList.contains('admin-mode');
-  track.innerHTML = '';
-
-  if (sponsors.length === 0) {
-    track.innerHTML = '<div style="color: var(--text-muted); padding: 20px; width: 100%; text-align: center;">Henüz bir iş birliği eklenmemiş.</div>';
-    return;
-  }
-
-  // Logolar arasına daha ferah bir boşluk (gap: 60px) ekliyoruz
-  let groupHtml = '<div class="partners-group" style="display: flex; align-items: center; gap: 60px; padding: 20px;">';
-
-  sponsors.forEach(s => {
-    let logoHtml = '';
-    
-    // 1. ADIM: Siyah arka planı ve sabit 120x120px kare zorunluluğunu kaldırdık.
-    // Yüksekliği sabit tutuyoruz (80px), genişlik ise (width: auto) logoya göre esneyecek.
-    if (s.logo_url && s.logo_url.startsWith('fa-')) {
-      logoHtml = `<div style="height: 80px; display: flex; align-items: center; justify-content: center; font-size: 4rem; color: var(--text-primary);"><i class="${escapeHTML(s.logo_url)}"></i></div>`;
-    } else {
-      logoHtml = `<img src="${escapeHTML(s.logo_url)}" alt="${escapeHTML(s.name)}" style="height: 80px; width: auto; max-width: 250px; object-fit: contain; filter: none !important;">`;
-    }
-
-    // 2. ADIM: Şirket isminin taşmasını engellemek için white-space: normal ve max-width ekledik
-    const innerContent = `
-      <div style="display: flex; flex-direction: column; align-items: center; gap: 16px; transition: transform 0.3s ease;">
-        ${logoHtml}
-        <span style="color: var(--glow); font-size: 1.05rem; font-weight: 600; text-align: center; letter-spacing: 0.5px; white-space: normal; max-width: 180px; line-height: 1.3;">${escapeHTML(s.name)}</span>
-      </div>
-    `;
-
-    // Link varsa tıklanabilir yapıyoruz
-    const contentHtml = s.website_url 
-        ? `<a href="${escapeHTML(s.website_url)}" target="_blank" rel="noopener" style="text-decoration: none;">${innerContent}</a>` 
-        : innerContent;
-
-    // 3. ADIM: flex-shrink: 0 ile bu kapsayıcının animasyon sırasında asla sıkışmamasını garanti ediyoruz
-    groupHtml += `
-      <div class="partner-item" style="position: relative; flex-shrink: 0; min-width: 150px; display: flex; justify-content: center;">
-        ${isAdmin ? `<button class="admin-delete-btn" data-id="${s.id}" title="Sil" style="position:absolute; top: -15px; right: -15px; background: rgba(239, 83, 80, 0.9); z-index: 10; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px;">✕</button>` : ''}
-        ${contentHtml}
-      </div>
-    `;
-  });
-
-  groupHtml += '</div>';
-
-  // Animasyonun kesintisiz dönmesi için HTML'i iki kere basıyoruz
-  track.innerHTML = groupHtml + groupHtml;
-
-  if (isAdmin) {
-    track.querySelectorAll('.admin-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        e.stopPropagation(); // Butona tıklarken linke gitmesini engeller
-        if (confirm('Bu iş birliğini silmek istediğinize emin misiniz?')) {
-          await deleteSponsor(btn.dataset.id);
-        }
-      });
-    });
-  }
-}
-
-async function deleteSponsor(id) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  try {
-    await fetch(`${API_URL}/sponsors/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    loadAndRenderAll();
-  } catch (error) {
-    alert("İş birliği silinemedi.");
-  }
-}
-
-async function addSponsor(data) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  try {
-    await fetch(`${API_URL}/sponsors/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(data)
-    });
-    loadAndRenderAll();
-  } catch (error) {
-    alert("İş birliği eklenirken hata oluştu.");
-  }
-}
-
-document.getElementById('admin-add-sponsor-btn')?.addEventListener('click', () => {
-  if (document.querySelector('.admin-sponsor-form')) return;
-
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-sponsor-form';
-  form.style.margin = "20px auto";
-  form.style.maxWidth = "800px";
-  form.innerHTML = `
-    <h4>Yeni İş Birliği Ekle</h4>
-    <label>Kurum/Şirket Adı *<input type="text" id="sp-name" required /></label>
-    
-    <!-- YENİ: DOSYA YÜKLEME ALANI EKLENDİ -->
-    <div style="background: rgba(79, 195, 247, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0;">
-        <label style="color: var(--glow);">Logo Yükle (Bilgisayardan) <input type="file" id="sp-file" accept="image/*" /></label>
-        <div style="text-align: center; margin: 5px 0;">VEYA</div>
-        <label>Logo URL / İkon <input type="text" id="sp-logo" placeholder="Resim linki veya ikon (Örn: fa-solid fa-building)" /></label>
-    </div>
-
-    <label>Website URL (İsteğe bağlı) <input type="text" id="sp-website" placeholder="Örn: https://www.hacettepe.edu.tr" /></label>
-    <div class="admin-form-actions">
-      <button type="button" id="sp-submit-btn" class="admin-btn">Ekle</button>
-      <button type="button" id="sp-cancel-btn" class="admin-btn admin-btn--secondary">İptal</button>
-    </div>
-  `;
-
-  const trackContainer = document.querySelector('.partners-grid');
-  trackContainer.parentNode.insertBefore(form, trackContainer.nextSibling);
-
-  // YENİ: "async" eklendi çünkü resim yükleme işlemini bekleyeceğiz
-  document.getElementById('sp-submit-btn').addEventListener('click', async () => {
-    const submitBtn = document.getElementById('sp-submit-btn');
-    const fileInput = document.getElementById('sp-file');
-    
-    const name = document.getElementById('sp-name').value.trim();
-    let logo_url = document.getElementById('sp-logo').value.trim();
-    
-    if (!name || (!logo_url && fileInput.files.length === 0)) {
-        return alert('Lütfen Kurum Adı ve Logo alanlarını doldurun.');
-    }
-
-    // YENİ: EĞER DOSYA SEÇİLMİŞSE ÖNCE ONU YÜKLE
-    if (fileInput.files.length > 0) {
-        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Yükleniyor...';
-        submitBtn.disabled = true;
-        
-        const uploadedUrl = await uploadImage(fileInput.files[0]);
-        if (!uploadedUrl) {
-            submitBtn.innerHTML = 'Ekle';
-            submitBtn.disabled = false;
-            return; // Yükleme başarısızsa işlemi durdur
-        }
-        logo_url = uploadedUrl; // Başarılıysa linki buraya yaz
-    }
-
-    const data = {
-        name: name,
-        logo_url: logo_url,
-        website_url: document.getElementById('sp-website').value.trim() || null,
-        tier: "Standart",
-        order_index: 0,
-        is_active: true
-    };
-
-    await addSponsor(data);
-    form.remove();
-  });
-
-  document.getElementById('sp-cancel-btn').addEventListener('click', () => form.remove());
-});
+// HTML içinde zaten var olan "Ekle" butonları
+document.getElementById('admin-add-announcement-btn')?.addEventListener('click', () => openAnnouncementForm());
+document.getElementById('admin-add-project-btn')?.addEventListener('click', () => openProjectForm());
+document.getElementById('admin-add-member-btn')?.addEventListener('click', () => openMemberForm());
+document.getElementById('admin-add-competition-btn')?.addEventListener('click', () => openCompetitionForm());
+document.getElementById('admin-add-sponsor-btn')?.addEventListener('click', () =>
+  openPartnerForm({ endpoint: '/sponsors', entityLabel: 'iş birliği' }));
+document.getElementById('admin-add-stakeholder-btn')?.addEventListener('click', () =>
+  openPartnerForm({ endpoint: '/stakeholders', entityLabel: 'paydaş topluluk' }));
 
 // ===========================================================================
-// RESİM YÜKLEME (UPLOAD) İŞLEMLERİ
-// ===========================================================================
-async function uploadImage(file) {
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-  const formData = new FormData();
-  formData.append('file', file);
-
-  try {
-    const res = await fetch(`${API_URL}/uploads/image`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`
-        // ÖNEMLİ: FormData gönderirken 'Content-Type' başlığını BİZ YAZMIYORUZ.
-        // Tarayıcı bunu multipart/form-data olarak sınır (boundary) değerleriyle kendi ayarlar.
-      },
-      body: formData
-    });
-
-    if (!res.ok) {
-      throw new Error("Resim yüklenemedi.");
-    }
-
-    const data = await res.json();
-    // Backend "/static/uploads/resim.png" dönüyor, biz bunu tam URL'ye çeviriyoruz
-    return API_URL + data.url; 
-  } catch (error) {
-    alert("Resim yüklenirken hata oluştu: " + error.message);
-    return null;
-  }
-}
-
-// ===========================================================================
-// ETKİNLİKLER SLIDER İŞLEMLERİ
-// ===========================================================================
-function renderEventSlider(events) {
-  const track = document.getElementById('event-slider-track');
-  if (!track) return;
-
-  // Sadece türü "Slider" olanları çekiyoruz
-  const sliderEvents = events.filter(e => e.event_type.toLowerCase() === 'slider');
-
-  if (sliderEvents.length === 0) {
-    track.innerHTML = '<div style="color: var(--text-muted); text-align: center; width: 100%; padding: 40px;">Henüz gösterilecek bir slayt yok.</div>';
-    return;
-  }
-
-  const isAdmin = document.body.classList.contains('admin-mode');
-  track.innerHTML = '';
-
-  sliderEvents.forEach(evt => {
-    const slide = document.createElement('div');
-    slide.className = 'slider-slide';
-    slide.innerHTML = `
-      <div class="event-banner" style="position: relative;">
-        ${isAdmin ? `<button class="admin-delete-btn" data-id="${evt.id}" title="Sil" style="position:absolute; top: 16px; right: 16px; background: rgba(239, 83, 80, 0.9); z-index: 10;">✕</button>` : ''}
-        <div class="event-banner-content">
-          <h3>${escapeHTML(evt.title)}</h3>
-          <p style="text-align: left;">${escapeHTML(evt.description)}</p>
-        </div>
-      </div>
-    `;
-    track.appendChild(slide);
-  });
-
-  if (isAdmin) {
-    track.querySelectorAll('.admin-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (confirm('Bu slaytı silmek istediğinize emin misiniz?')) {
-          await deleteCalendarEvent(btn.dataset.id);
-        }
-      });
-    });
-  }
-
-  // Slider animasyonu
-  const oldPrev = document.getElementById('event-slider-prev');
-  const oldNext = document.getElementById('event-slider-next');
-  if (oldPrev && oldNext) {
-      const newPrev = oldPrev.cloneNode(true);
-      const newNext = oldNext.cloneNode(true);
-      oldPrev.parentNode.replaceChild(newPrev, oldPrev);
-      oldNext.parentNode.replaceChild(newNext, oldNext);
-
-      let currentIndex = 0;
-      const totalSlides = sliderEvents.length;
-      const updateSlider = () => { track.style.transform = `translateX(-${currentIndex * 100}%)`; };
-
-      newNext.addEventListener('click', () => {
-          currentIndex++;
-          if (currentIndex >= totalSlides) currentIndex = 0;
-          updateSlider();
-      });
-      newPrev.addEventListener('click', () => {
-          currentIndex--;
-          if (currentIndex < 0) currentIndex = totalSlides - 1;
-          updateSlider();
-      });
-  }
-}
-
-// Özel Slayt Ekleme Formu
-function openSliderForm() {
-  if (document.querySelector('.admin-slider-form')) return;
-
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-slider-form';
-  form.innerHTML = `
-    <h4>Yeni Slayt Ekle</h4>
-    <label>Slayt Başlığı *<input type="text" id="slider-title" required /></label>
-    <label>Slayt Açıklaması *<textarea id="slider-desc" rows="3" required></textarea></label>
-    <div class="admin-form-actions">
-      <button type="button" id="slider-submit-btn" class="admin-btn">Ekle</button>
-      <button type="button" id="slider-cancel-btn" class="admin-btn admin-btn--secondary">İptal</button>
-    </div>
-  `;
-
-  const addBtn = document.querySelector('.admin-add-slider-btn');
-  addBtn?.parentNode?.insertBefore(form, addBtn.nextSibling);
-
-  document.getElementById('slider-submit-btn').addEventListener('click', async () => {
-    const title = document.getElementById('slider-title').value.trim();
-    const description = document.getElementById('slider-desc').value.trim();
-    
-    if (!title || !description) return alert('Lütfen tüm zorunlu alanları doldurun.');
-
-    // Veritabanı "date" ve "location" zorunlu tuttuğu için sahte veri (dummy) yolluyoruz
-    const data = { 
-        title: title, 
-        description: description, 
-        date: new Date().toISOString().split('T')[0], 
-        location: "-", 
-        event_type: "Slider" 
-    };
-    
-    await addCalendarEvent(data); 
-    form.remove();
-  });
-
-  document.getElementById('slider-cancel-btn').addEventListener('click', () => form.remove());
-}
-
-// Takvim Formunu Düzeltme (Eski haline getirme)
-function openEventForm() {
-  if (document.querySelector('.admin-event-form')) return;
-
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-event-form';
-  form.innerHTML = `
-    <h4>Yeni Etkinlik Ekle (Takvim)</h4>
-    <label>Etkinlik Adı *<input type="text" id="event-name" required /></label>
-    <label>Tarih *<input type="date" id="event-date" required /></label>
-    <label>Konum *<input type="text" id="event-location" required /></label>
-    <label>Tür
-      <select id="event-type">
-        <option value="Etkinlik">Etkinlik</option>
-        <option value="Yarışma">Yarışma</option>
-        <option value="Eğitim">Eğitim</option>
-        <option value="Party">Party</option>
-      </select>
-    </label>
-    <div class="admin-form-actions">
-      <button type="button" id="event-submit-btn" class="admin-btn">Ekle</button>
-      <button type="button" id="event-cancel-btn" class="admin-btn admin-btn--secondary">İptal</button>
-    </div>
-  `;
-
-  const addBtn = document.querySelector('.admin-add-event-btn');
-  addBtn?.parentNode?.insertBefore(form, addBtn.nextSibling);
-
-  document.getElementById('event-submit-btn')?.addEventListener('click', () => {
-    const title = document.getElementById('event-name')?.value.trim();
-    const date = document.getElementById('event-date')?.value;
-    const location = document.getElementById('event-location')?.value.trim();
-    const event_type = document.getElementById('event-type')?.value;
-
-    if (!title || !date || !location) return alert('Lütfen tüm zorunlu alanları doldurun.');
-
-    addCalendarEvent({ title, date, location, event_type });
-    form.remove();
-  });
-
-  document.getElementById('event-cancel-btn')?.addEventListener('click', () => form.remove());
-}
-
-// ===========================================================================
-// YARIŞMA KARTLARI (KAYAN ANİMASYON) İŞLEMLERİ
-// ===========================================================================
-function renderCompetitions(events) {
-  const track = document.getElementById('competitions-dynamic-track');
-  if (!track) return;
-
-  const compEvents = events.filter(e => e.event_type === 'YarismaKarti');
-  const isAdmin = document.body.classList.contains('admin-mode');
-  
-  track.innerHTML = '';
-  if (compEvents.length === 0) {
-    track.innerHTML = '<div style="color: var(--text-muted); text-align: center; width: 100%; padding: 40px;">Henüz yarışma eklenmemiş.</div>';
-    return;
-  }
-
-  // gap: 30px ile kartlar arasına net bir boşluk bırakıyoruz
-  let groupHtml = '<div class="upcoming-group" style="display: flex; gap: 30px; padding: 10px;">';
-
-  compEvents.forEach(evt => {
-    const imageUrl = (evt.location && evt.location !== '-') ? evt.location : '';
-    
-    // GÜNCELLEME: Arka planı eski resimdeki gibi tam siyah (#000000) yaptık
-    const imageHtml = imageUrl 
-        ? `<img src="${escapeHTML(imageUrl)}" alt="${escapeHTML(evt.title)}" style="width: 100%; height: 200px; object-fit: contain; background: #000000; border-radius: 12px 12px 0 0; padding: 15px;">` 
-        : `<div style="height:200px; background:#000000; border-radius:12px 12px 0 0; display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-trophy fa-3x" style="color:var(--glow)"></i></div>`;
-
-    groupHtml += `
-      <!-- flex: 0 0 350px; komutu kartın sıkışmasını ve üst üste binmesini KESİN engeller -->
-      <div class="project-card" style="position: relative; width: 350px; flex: 0 0 350px; display: flex; flex-direction: column; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; overflow: hidden;">
-        ${isAdmin ? `<button class="admin-delete-btn" data-id="${evt.id}" title="Sil" style="position:absolute; top: 12px; right: 12px; background: rgba(239, 83, 80, 0.9); z-index: 10;">✕</button>` : ''}
-        ${imageHtml}
-        <div class="project-content" style="padding: 20px; text-align: left; flex: 1;">
-          <h3 style="margin-bottom: 10px; color: var(--text-primary); font-size: 1.3rem;">${escapeHTML(evt.title)}</h3>
-          <p style="font-size: 0.95rem; line-height: 1.5; color: var(--text-secondary);">${escapeHTML(evt.description)}</p>
-        </div>
-      </div>
-    `;
-  });
-
-  groupHtml += '</div>';
-
-  // Kayan animasyonun kesintisiz dönmesi için aynı grubu iki kez basıyoruz
-  track.innerHTML = groupHtml + groupHtml;
-
-  if (isAdmin) {
-    track.querySelectorAll('.admin-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (confirm('Bu yarışmayı silmek istediğinize emin misiniz?')) {
-          await deleteCalendarEvent(btn.dataset.id);
-        }
-      });
-    });
-  }
-}
-
-// YARIŞMA EKLEME FORMU
-document.getElementById('admin-add-competition-btn')?.addEventListener('click', () => {
-  if (document.querySelector('.admin-competition-form')) return;
-
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-competition-form';
-  form.style.margin = "20px auto";
-  form.style.maxWidth = "800px";
-  form.innerHTML = `
-    <h4>Yeni Yarışma Ekle</h4>
-    <label>Yarışma Adı *<input type="text" id="comp-title" required /></label>
-    <label>Açıklama (Detaylı Metin) *<textarea id="comp-desc" rows="5" required></textarea></label>
-    <div style="background: rgba(79, 195, 247, 0.1); padding: 10px; border-radius: 8px; margin: 10px 0;">
-        <label style="color: var(--glow);">Yarışma Logosu Yükle <input type="file" id="comp-file" accept="image/*" /></label>
-        <div style="text-align: center; margin: 5px 0;">VEYA</div>
-        <label>Görsel URL <input type="text" id="comp-image" placeholder="https://..." /></label>
-    </div>
-    <div class="admin-form-actions">
-      <button type="button" id="comp-submit-btn" class="admin-btn">Ekle</button>
-      <button type="button" id="comp-cancel-btn" class="admin-btn admin-btn--secondary">İptal</button>
-    </div>
-  `;
-
-  const trackContainer = document.getElementById('competitions-dynamic-track').parentNode;
-  trackContainer.parentNode.insertBefore(form, trackContainer.nextSibling);
-
-  document.getElementById('comp-submit-btn').addEventListener('click', async () => {
-    const submitBtn = document.getElementById('comp-submit-btn');
-    const fileInput = document.getElementById('comp-file');
-    let imageUrl = document.getElementById('comp-image').value.trim();
-
-    const title = document.getElementById('comp-title').value.trim();
-    const description = document.getElementById('comp-desc').value.trim();
-
-    if (!title || !description) return alert('Lütfen zorunlu alanları doldurun.');
-
-    if (fileInput.files.length > 0) {
-        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Yükleniyor...';
-        submitBtn.disabled = true;
-        const uploadedUrl = await uploadImage(fileInput.files[0]);
-        if (!uploadedUrl) {
-            submitBtn.innerHTML = 'Ekle';
-            submitBtn.disabled = false;
-            return;
-        }
-        imageUrl = uploadedUrl;
-    }
-
-    // Görüntü linkini location alanına saklıyoruz
-    const data = {
-        title: title,
-        description: description,
-        date: new Date().toISOString().split('T')[0], // Mecburi alan için sahte tarih
-        location: imageUrl || '-', // Location içine image URL gömüyoruz
-        event_type: 'YarismaKarti'
-    };
-
-    await addCalendarEvent(data); // Takvim ekleme API'sini gizlice yarışma için kullanıyoruz
-    form.remove();
-  });
-
-  document.getElementById('comp-cancel-btn').addEventListener('click', () => form.remove());
-});
-
-// ===========================================================================
-// YENİ ADMİN EKLEME İŞLEMLERİ
+// ADMİN YÖNETİMİ
 // ===========================================================================
 function openAddAdminForm() {
-  if (document.querySelector('.admin-add-admin-form')) return;
-
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-add-admin-form';
-  form.style.position = 'fixed';
-  form.style.top = '50%';
-  form.style.left = '50%';
-  form.style.transform = 'translate(-50%, -50%)';
-  form.style.zIndex = '10000';
-  form.style.background = 'var(--bg-card)';
-  form.style.padding = '25px';
-  form.style.borderRadius = '12px';
-  form.style.boxShadow = '0 10px 30px rgba(0,0,0,0.8)';
-  form.style.border = '1px solid var(--border-color)';
-  form.style.width = '90%';
-  form.style.maxWidth = '350px';
-
-  form.innerHTML = `
-    <h4 style="margin-bottom: 20px; color: var(--glow); text-align: center;"><i class="fa-solid fa-user-shield"></i> Yeni Admin Kaydı</h4>
-    <label style="display: block; margin-bottom: 10px;">Kullanıcı Adı *<input type="text" id="new-admin-username" required style="width: 100%; margin-top: 5px; background: var(--bg-body); border: 1px solid var(--border-color); color: #fff; padding: 8px; border-radius: 6px;"/></label>
-    <label style="display: block; margin-bottom: 20px;">Şifre *<input type="password" id="new-admin-password" required style="width: 100%; margin-top: 5px; background: var(--bg-body); border: 1px solid var(--border-color); color: #fff; padding: 8px; border-radius: 6px;"/></label>
-    <div class="admin-form-actions" style="display: flex; gap: 10px; justify-content: center;">
-      <button type="button" id="new-admin-submit" class="admin-btn btn-primary" style="flex: 1;">Oluştur</button>
-      <button type="button" id="new-admin-cancel" class="admin-btn admin-btn--secondary" style="flex: 1;">İptal</button>
-    </div>
-  `;
-
-  document.body.appendChild(form);
-
-  document.getElementById('new-admin-submit').addEventListener('click', async () => {
-    const username = document.getElementById('new-admin-username').value.trim();
-    const password = document.getElementById('new-admin-password').value.trim();
-
-    if (!username || !password) return alert('Lütfen kullanıcı adı ve şifre girin.');
-
-    const submitBtn = document.getElementById('new-admin-submit');
-    submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> İşleniyor...';
-    submitBtn.disabled = true;
-
-    const token = localStorage.getItem(LS_TOKEN_KEY);
-    try {
-      // DİKKAT: Backend'de yeni admin ekleme yolun "/users/register" veya "/auth/register" olabilir. Kendi API'ne göre burayı düzeltmen gerekebilir.
-      const response = await fetch(`${API_URL}/users/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ username: username, password: password })
-      });
-
-      if (response.ok) {
-        alert('Yeni admin başarıyla eklendi!');
-        form.remove();
-      } else {
-        const err = await response.json();
-        alert('Admin eklenirken hata oluştu: ' + (err.detail || 'Bilinmeyen hata'));
-        submitBtn.innerHTML = 'Oluştur';
-        submitBtn.disabled = false;
-      }
-    } catch (error) {
-      alert('Sunucuya ulaşılamadı. Lütfen bağlantınızı kontrol edin.');
-      submitBtn.innerHTML = 'Oluştur';
-      submitBtn.disabled = false;
-    }
+  openAdminForm({
+    title: 'Yeni Admin Kaydı',
+    icon: 'fa-user-shield',
+    fields: [
+      { name: 'username', label: 'Kullanıcı Adı (E-posta)', required: true },
+      { name: 'password', label: 'Şifre', required: true },
+    ],
+    onSubmit: async (data) => {
+      const ok = await apiSend('POST', '/users/register', {
+        username: data.username,
+        password: data.password,
+      }, 'Admin eklenemedi.');
+      if (ok) alert('Yeni admin başarıyla eklendi!');
+      return ok;
+    },
   });
-
-  document.getElementById('new-admin-cancel').addEventListener('click', () => form.remove());
 }
 
-// Adminleri Listeleme ve Silme Modalı (En alta ekleyebilirsin)
-async function openAdminListForm() {
-  if (document.querySelector('.admin-list-form')) return;
+/**
+ * Basit liste modalı üreticisi (adminler ve bülten aboneleri için ortak).
+ */
+function openListModal({ title, icon, endpoint, emptyText, renderRow, deletePath }) {
+  document.querySelectorAll('.admin-modal-form').forEach(f => f.remove());
 
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-list-form';
-  form.style.position = 'fixed';
-  form.style.top = '50%';
-  form.style.left = '50%';
-  form.style.transform = 'translate(-50%, -50%)';
-  form.style.zIndex = '10000';
-  form.style.background = 'var(--bg-card)';
-  form.style.padding = '25px';
-  form.style.borderRadius = '12px';
-  form.style.boxShadow = '0 10px 30px rgba(0,0,0,0.8)';
-  form.style.border = '1px solid var(--border-color)';
-  form.style.width = '90%';
-  form.style.maxWidth = '500px';
-  form.style.maxHeight = '70vh';
-  form.style.overflowY = 'auto';
-
-  form.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h4 style="color: var(--glow); margin: 0;"><i class="fa-solid fa-users-gear"></i> Kayıtlı Adminler</h4>
-        <button type="button" id="close-admin-list" class="admin-btn admin-btn--secondary" style="padding: 5px 10px;">✕</button>
-    </div>
-    <div id="admin-list-container" style="display: flex; flex-direction: column; gap: 10px;">
+  const overlay = document.createElement('div');
+  overlay.className = 'admin-modal-form';
+  overlay.innerHTML = `
+    <div class="admin-inline-form" style="max-width: 500px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h4 style="margin: 0;"><i class="fa-solid ${icon}"></i> ${escapeHTML(title)}</h4>
+        <button type="button" class="admin-btn admin-btn--secondary" data-action="close" style="padding: 5px 12px;">✕</button>
+      </div>
+      <div data-role="list" style="display: flex; flex-direction: column; gap: 10px;">
         <div style="text-align: center; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Yükleniyor...</div>
+      </div>
     </div>
   `;
 
-  document.body.appendChild(form);
-  document.getElementById('close-admin-list').addEventListener('click', () => form.remove());
+  const close = () => overlay.remove();
+  overlay.querySelector('[data-action="close"]').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+  document.body.appendChild(overlay);
 
-  const container = document.getElementById('admin-list-container');
-  const token = localStorage.getItem(LS_TOKEN_KEY);
+  const list = overlay.querySelector('[data-role="list"]');
 
-  try {
-    const res = await fetch(`${API_URL}/users`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    
-    if (!res.ok) throw new Error("Veri çekilemedi");
-    const admins = await res.json();
-    
-    container.innerHTML = ''; 
-    
-    admins.forEach(admin => {
-        const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.justifyContent = 'space-between';
-        row.style.alignItems = 'center';
-        row.style.background = 'rgba(255,255,255,0.05)';
-        row.style.padding = '10px 15px';
-        row.style.borderRadius = '8px';
-        
-        row.innerHTML = `
-            <div>
-                <div style="font-weight: 600; color: #fff;">${admin.email}</div>
-                <div style="font-size: 0.8rem; color: var(--text-muted);">Role: ${admin.role}</div>
-            </div>
-            <button class="admin-delete-btn" title="Sil" style="background: rgba(239, 83, 80, 0.2); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: #ef5350; border: none; cursor: pointer;">✕</button>
-        `;
+  (async () => {
+    try {
+      const res = await fetch(`${API_URL}${endpoint}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error('Veri çekilemedi');
 
-        // ÇÖZÜM: Silme olayını doğrudan bu satırın (row) içine bağladık
-        const deleteBtn = row.querySelector('.admin-delete-btn');
-        deleteBtn.addEventListener('click', async () => {
-            if (confirm('Bu admini silmek istediğinize emin misiniz?')) {
-                deleteBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-                try {
-                    const deleteRes = await fetch(`${API_URL}/users/${admin.id}`, {
-                        method: 'DELETE',
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    
-                    if (deleteRes.ok) {
-                        row.remove(); // Şimdi satırı sorunsuz bulup anında ekrandan silecek
-                    } else {
-                        const err = await deleteRes.json();
-                        alert("Silinemedi: " + (err.detail || "Bilinmeyen hata"));
-                        deleteBtn.innerHTML = '✕';
-                    }
-                } catch (e) {
-                    alert("Sunucuyla bağlantı koptu veya bir hata oluştu.");
-                    deleteBtn.innerHTML = '✕';
-                }
-            }
-        });
+      const records = await res.json();
+      list.innerHTML = '';
 
-        container.appendChild(row);
-    });
-
-  } catch (error) {
-    container.innerHTML = '<div style="color: #ef5350;">Admin listesi yüklenemedi.</div>';
-  }
-}
-
-// ===========================================================================
-// E-BÜLTEN ABONELERİNİ LİSTELEME İŞLEMLERİ
-// ===========================================================================
-async function openNewsletterListModal() {
-  if (document.querySelector('.admin-newsletter-list-form')) return;
-
-  const form = document.createElement('div');
-  form.className = 'admin-inline-form admin-newsletter-list-form';
-  form.style.position = 'fixed';
-  form.style.top = '50%';
-  form.style.left = '50%';
-  form.style.transform = 'translate(-50%, -50%)';
-  form.style.zIndex = '10000';
-  form.style.background = 'var(--bg-card)';
-  form.style.padding = '25px';
-  form.style.borderRadius = '12px';
-  form.style.boxShadow = '0 10px 30px rgba(0,0,0,0.8)';
-  form.style.border = '1px solid var(--border-color)';
-  form.style.width = '90%';
-  form.style.maxWidth = '500px';
-  form.style.maxHeight = '70vh';
-  form.style.overflowY = 'auto';
-
-  form.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h4 style="color: var(--glow); margin: 0;"><i class="fa-solid fa-envelope-open-text"></i> Bülten Aboneleri</h4>
-        <button type="button" id="close-newsletter-list" class="admin-btn admin-btn--secondary" style="padding: 5px 10px;">✕</button>
-    </div>
-    <div id="newsletter-list-container" style="display: flex; flex-direction: column; gap: 10px;">
-        <div style="text-align: center; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Yükleniyor...</div>
-    </div>
-  `;
-
-  document.body.appendChild(form);
-  document.getElementById('close-newsletter-list').addEventListener('click', () => form.remove());
-
-  const container = document.getElementById('newsletter-list-container');
-  const token = localStorage.getItem(LS_TOKEN_KEY);
-
-  try {
-    const res = await fetch(`${API_URL}/newsletter/`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    
-    if (!res.ok) throw new Error("Aboneler çekilemedi");
-    const subscribers = await res.json();
-    
-    container.innerHTML = ''; 
-    
-    if(subscribers.length === 0) {
-        container.innerHTML = '<div style="text-align: center; color: var(--text-muted);">Henüz abone bulunmuyor.</div>';
+      if (records.length === 0) {
+        list.innerHTML = `<div style="text-align: center; color: var(--text-muted);">${escapeHTML(emptyText)}</div>`;
         return;
-    }
-    
-    subscribers.forEach(sub => {
-        const dateObj = new Date(sub.subscribed_at);
-        const formattedDate = dateObj.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
+      }
 
+      records.forEach(record => {
         const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.justifyContent = 'space-between';
-        row.style.alignItems = 'center';
-        row.style.background = 'rgba(255,255,255,0.05)';
-        row.style.padding = '10px 15px';
-        row.style.borderRadius = '8px';
-        
-        row.innerHTML = `
-            <div>
-                <div style="font-weight: 600; color: #fff;">${sub.email}</div>
-                <div style="font-size: 0.8rem; color: var(--text-muted);">Kayıt: ${formattedDate}</div>
-            </div>
-            <button class="admin-delete-btn" title="Sil" style="background: rgba(239, 83, 80, 0.2); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: #ef5350; border: none; cursor: pointer;">✕</button>
-        `;
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 10px 15px; border-radius: 8px; gap: 12px;';
+        row.innerHTML = `<div style="min-width:0;">${renderRow(record)}</div>`;
 
-        // Silme İşlemi Olay Dinleyicisi
-        const deleteBtn = row.querySelector('.admin-delete-btn');
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'admin-ctrl-btn admin-ctrl-btn--delete';
+        deleteBtn.title = 'Sil';
+        deleteBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
         deleteBtn.addEventListener('click', async () => {
-            if (confirm(`'${sub.email}' adresini bültenden çıkarmak istediğinize emin misiniz?`)) {
-                deleteBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; // Yükleniyor ikonu
-                try {
-                    const deleteRes = await fetch(`${API_URL}/newsletter/${sub.id}`, {
-                        method: 'DELETE',
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    
-                    if (deleteRes.ok) {
-                        row.remove(); // Başarılıysa satırı ekrandan anında sil
-                    } else {
-                        const err = await deleteRes.json();
-                        alert("Silinemedi: " + (err.detail || "Bilinmeyen hata"));
-                        deleteBtn.innerHTML = '✕';
-                    }
-                } catch (e) {
-                    alert("Sunucuyla bağlantı koptu veya bir hata oluştu.");
-                    deleteBtn.innerHTML = '✕';
-                }
-            }
+          if (!confirm('Bu kaydı silmek istediğinize emin misiniz?')) return;
+          deleteBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+          const ok = await apiSend('DELETE', deletePath(record), undefined, 'Silinemedi.');
+          if (ok) row.remove();
+          else deleteBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
         });
 
-        container.appendChild(row);
-    });
+        row.appendChild(deleteBtn);
+        list.appendChild(row);
+      });
+    } catch (error) {
+      list.innerHTML = '<div style="color: #ef5350;">Liste yüklenemedi. Yetkiniz olmayabilir.</div>';
+    }
+  })();
+}
 
-  } catch (error) {
-    container.innerHTML = '<div style="color: #ef5350;">Aboneler yüklenemedi. Yetkiniz olmayabilir.</div>';
+function openAdminListForm() {
+  openListModal({
+    title: 'Kayıtlı Adminler',
+    icon: 'fa-users-gear',
+    endpoint: '/users',
+    emptyText: 'Kayıtlı admin bulunmuyor.',
+    deletePath: (admin) => `/users/${admin.id}`,
+    renderRow: (admin) => `
+      <div style="font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere;">${escapeHTML(admin.email)}</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted);">Rol: ${escapeHTML(admin.role)}</div>
+    `,
+  });
+}
+
+function openNewsletterListModal() {
+  openListModal({
+    title: 'Bülten Aboneleri',
+    icon: 'fa-envelope-open-text',
+    endpoint: '/newsletter/',
+    emptyText: 'Henüz abone bulunmuyor.',
+    deletePath: (sub) => `/newsletter/${sub.id}`,
+    renderRow: (sub) => {
+      const date = new Date(sub.subscribed_at).toLocaleDateString('tr-TR', {
+        day: '2-digit', month: 'short', year: 'numeric',
+      });
+      return `
+        <div style="font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere;">${escapeHTML(sub.email)}</div>
+        <div style="font-size: 0.8rem; color: var(--text-muted);">Kayıt: ${escapeHTML(date)}</div>
+      `;
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+//  Initialization
+// ---------------------------------------------------------------------------
+function init() {
+  if (localStorage.getItem(LS_ADMIN_STATE) === 'true' && getToken()) {
+    activateAdminMode();
+  } else {
+    // Yarım kalmış oturum kalıntılarını temizle
+    localStorage.removeItem(LS_ADMIN_STATE);
+    loadAndRenderAll();
   }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
 }

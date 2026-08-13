@@ -28,12 +28,14 @@ class Event(SQLModel, table=True):
     description: str
     content: str
     date: datetime
+    end_date: Optional[datetime] = Field(default=None)  # Çok günlü etkinliklerde bitiş tarihi
     location: str
     image_url: Optional[str] = None
     registration_link: Optional[str] = None
     is_active: bool = Field(default=True)
     event_type: str = Field(default="Etkinlik")  # Seçenekler: "Etkinlik", "Yarışma", "Eğitim"
     instructor: Optional[str] = Field(default=None)  # Sadece eğitimlerde dolacak, diğerlerinde null kalabilir
+    order_index: int = Field(default=0)  # Admin panelinden elle sıralama için
 
 class Project(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -57,6 +59,7 @@ class Announcement(SQLModel, table=True):
         foreign_key="user.id",
         ondelete="SET NULL")
     is_active: bool = Field(default=True)
+    order_index: int = Field(default=0)  # Admin panelinden elle sıralama için
 
 class Sponsor(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -64,6 +67,15 @@ class Sponsor(SQLModel, table=True):
     logo_url: str
     website_url: Optional[str] = None
     tier: str = Field(default="Standart")
+    order_index: int = Field(default=0)
+    is_active: bool = Field(default=True)
+
+class Stakeholder(SQLModel, table=True):
+    """AI FEST'26 Paydaş Topluluklarımız."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    logo_url: str
+    website_url: Optional[str] = None
     order_index: int = Field(default=0)
     is_active: bool = Field(default=True)
 

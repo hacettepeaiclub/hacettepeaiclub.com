@@ -6,6 +6,11 @@
 
 'use strict';
 
+// ==================== GLOBAL CONFIGURATION ====================
+// Canlıya alınca burası sunucu IP/Domain'i olacak.
+// app.js ilk yüklenen dosya olduğu için tüm modüller bu değeri kullanabilir.
+const API_URL = 'http://127.0.0.1:8000';
+
 // ==================== DOM REFERENCES ====================
 const DOM = {
     header: document.getElementById('header'),
@@ -407,6 +412,138 @@ class ParallaxEffect {
     }
 }
 
+// ==================== MARQUEE ENGINE ====================
+/**
+ * Ölçüme dayalı, sonsuz ve boşluksuz kayan şerit.
+ *
+ * Sorun: eski sürüm HTML'i iki kez basıp `translateX(-50%)` uyguluyordu.
+ * Bu yöntem yalnızca içerik ekrandan geniş olduğunda ve tam iki kopya
+ * bulunduğunda düzgün çalışır; 2 elemanlı listelerde boşluk, 15 elemanlı
+ * listelerde ise okunamayacak kadar yüksek hız oluşuyordu.
+ *
+ * Yeni yöntem:
+ *  - Orijinal elemanların toplam genişliği ölçülür.
+ *  - Ekrana sığıyorsa animasyon çalışmaz, içerik ortalanır (statik mod).
+ *  - Sığmıyorsa ekranı dolduracak kadar kopya üretilir ve tam olarak
+ *    bir tur (bir kopya genişliği) kaydırılır → dikişsiz döngü.
+ *  - Süre = mesafe / hız olduğu için hız eleman sayısından bağımsızdır.
+ */
+class Marquee {
+    static instances = new WeakMap();
+
+    /** Sayfadaki tüm [data-marquee] alanlarını hazırlar. */
+    static initAll() {
+        document.querySelectorAll('[data-marquee]').forEach(el => Marquee.get(el));
+    }
+
+    /** İlgili alanı (varsa) getirir, yoksa oluşturur. */
+    static get(el) {
+        if (!el) return null;
+        let instance = Marquee.instances.get(el);
+        if (!instance) {
+            instance = new Marquee(el);
+            Marquee.instances.set(el, instance);
+        }
+        return instance;
+    }
+
+    /** İçerik JS ile yeniden basıldıktan sonra çağrılır. */
+    static refresh(trackOrId) {
+        const track = typeof trackOrId === 'string'
+            ? document.getElementById(trackOrId)
+            : trackOrId;
+        const root = track?.closest('[data-marquee]');
+        Marquee.get(root)?.layout();
+    }
+
+    constructor(root) {
+        this.root = root;
+        this.track = root.querySelector('.marquee-track');
+        // Saniyedeki piksel cinsinden hız; eleman sayısı değişse de sabit kalır.
+        this.speed = parseFloat(root.dataset.marqueeSpeed) || 45;
+        if (root.dataset.marqueeReverse === 'true') {
+            root.classList.add('is-reverse');
+        }
+
+        this.layout = this.layout.bind(this);
+
+        if (typeof ResizeObserver !== 'undefined') {
+            this.observer = new ResizeObserver(() => this.scheduleLayout());
+            this.observer.observe(this.root);
+        } else {
+            window.addEventListener('resize', () => this.scheduleLayout(), { passive: true });
+        }
+
+        this.layout();
+    }
+
+    scheduleLayout() {
+        clearTimeout(this._timer);
+        this._timer = setTimeout(this.layout, 120);
+    }
+
+    /** Kopyaları temizleyip yalnızca orijinal elemanları bırakır. */
+    resetClones() {
+        if (!this.track) return [];
+        this.track.querySelectorAll('[data-marquee-clone]').forEach(node => node.remove());
+        return Array.from(this.track.children);
+    }
+
+    layout() {
+        if (!this.track) return;
+
+        const originals = this.resetClones();
+        this.root.classList.remove('is-animating', 'is-static');
+        this.track.style.removeProperty('--marquee-shift');
+        this.track.style.removeProperty('--marquee-duration');
+
+        // İçerik yoksa yapacak bir şey de yok.
+        if (originals.length === 0) return;
+
+        // Admin modunda animasyon yerine elle kaydırma kullanılır: kopya üretilmez.
+        if (document.body.classList.contains('admin-mode')) return;
+
+        const styles = getComputedStyle(this.track);
+        const gap = parseFloat(styles.columnGap || styles.gap) || 0;
+
+        const groupWidth = originals.reduce(
+            (total, node) => total + node.getBoundingClientRect().width + gap,
+            0
+        );
+        const viewportWidth = this.root.clientWidth;
+
+        // Ekrana sığıyorsa: sabit ve ortalanmış göster.
+        if (groupWidth <= viewportWidth + 1 || groupWidth === 0) {
+            this.root.classList.add('is-static');
+            return;
+        }
+
+        // Ekranı kesintisiz doldurmak için yeterli sayıda kopya üret.
+        const copiesNeeded = Math.ceil(viewportWidth / groupWidth) + 1;
+        const fragment = document.createDocumentFragment();
+        for (let copy = 0; copy < copiesNeeded; copy++) {
+            originals.forEach(node => {
+                const clone = node.cloneNode(true);
+                clone.setAttribute('data-marquee-clone', 'true');
+                clone.setAttribute('aria-hidden', 'true');
+                // Kopyalardaki interaktif öğeler klavye/ekran okuyucu için pasifleştirilir.
+                clone.querySelectorAll('a, button, input, [tabindex]').forEach(el => {
+                    el.setAttribute('tabindex', '-1');
+                });
+                fragment.appendChild(clone);
+            });
+        }
+        this.track.appendChild(fragment);
+
+        // Tam bir kopya boyu kaydırılır → döngü dikişsiz kapanır.
+        this.track.style.setProperty('--marquee-shift', `${groupWidth}px`);
+        this.track.style.setProperty('--marquee-duration', `${groupWidth / this.speed}s`);
+        this.root.classList.add('is-animating');
+    }
+}
+
+window.Marquee = Marquee;
+
 // ==================== EVENT SLIDER ====================
 class EventSlider {
     constructor() {
@@ -416,51 +553,57 @@ class EventSlider {
 
         if (!this.track || !this.prevBtn || !this.nextBtn) return;
 
-        this.slides = this.track.querySelectorAll('.slider-slide');
-        this.totalSlides = this.slides.length;
         this.currentIndex = 0;
-
         this.bindEvents();
+        this.update();
+    }
+
+    get totalSlides() {
+        return this.track.querySelectorAll('.slider-slide').length;
     }
 
     bindEvents() {
-        this.nextBtn.addEventListener('click', () => {
-            this.currentIndex++;
-            if (this.currentIndex >= this.totalSlides) {
-                this.currentIndex = 0; // loop back to first
-            }
-            this.updateSlider();
-        });
-
-        this.prevBtn.addEventListener('click', () => {
-            this.currentIndex--;
-            if (this.currentIndex < 0) {
-                this.currentIndex = this.totalSlides - 1; // loop to last
-            }
-            this.updateSlider();
-        });
-
-        // Handle resize to update translation value if necessary
-        window.addEventListener('resize', () => this.updateSlider());
+        this.nextBtn.addEventListener('click', () => this.go(1));
+        this.prevBtn.addEventListener('click', () => this.go(-1));
+        window.addEventListener('resize', () => this.update(), { passive: true });
     }
 
-    updateSlider() {
-        // Since each slide is min-width: 100%, we translate by currentIndex * 100%
+    go(step) {
+        const total = this.totalSlides;
+        if (total === 0) return;
+        // Modulo ile hem ileri hem geri yönde güvenli döngü
+        this.currentIndex = (this.currentIndex + step + total) % total;
+        this.update();
+    }
+
+    update() {
+        const total = this.totalSlides;
+        if (total === 0) {
+            this.track.style.transform = 'translateX(0)';
+            return;
+        }
+        if (this.currentIndex >= total) this.currentIndex = 0;
         this.track.style.transform = `translateX(-${this.currentIndex * 100}%)`;
+        // Tek slayt varsa okları gizle
+        const single = total <= 1;
+        this.prevBtn.style.visibility = single ? 'hidden' : 'visible';
+        this.nextBtn.style.visibility = single ? 'hidden' : 'visible';
     }
 }
 
 // ==================== INITIALIZE ====================
 document.addEventListener('DOMContentLoaded', () => {
     // Core functionality
-    new HamburgerMenu();
+    window.hamburgerMenu = new HamburgerMenu();
     new ContactDropdown();
     new HeaderScroll();
     new SmoothScroll();
     new ScrollReveal();
     new StatsCounter();
     new ActiveSection();
-    new EventSlider();
+    // Tek bir slider örneği tutulur; admin.js içerik bastıktan sonra bunu yeniler.
+    window.eventSlider = new EventSlider();
+    Marquee.initAll();
 
     // Visual effects
     new TypedText();
@@ -482,7 +625,11 @@ document.addEventListener('DOMContentLoaded', () => {
 // E-BÜLTEN (NEWSLETTER) İŞLEMLERİ
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
-    const newsletterBtn = document.getElementById('nav-newsletter-btn');
+    // Header'daki buton ile yan menüdeki buton aynı modalı açar
+    const newsletterTriggers = [
+        document.getElementById('nav-newsletter-btn'),
+        document.getElementById('side-menu-newsletter-btn'),
+    ].filter(Boolean);
     const newsletterModal = document.getElementById('newsletter-modal');
     const closeNewsletterBtn = document.getElementById('close-newsletter-modal');
     const newsletterSubmit = document.getElementById('newsletter-submit-btn');
@@ -490,13 +637,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const newsletterMessage = document.getElementById('newsletter-message');
 
     // Modalı Aç
-    if (newsletterBtn && newsletterModal) {
-        newsletterBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            newsletterModal.classList.add('active'); // active sınıfı ile CSS geçişini tetikliyoruz
-            document.body.classList.add('modal-open'); // Arkadaki sayfanın kaymasını engeller
-            newsletterMessage.textContent = '';
-            if(newsletterEmail) newsletterEmail.value = '';
+    if (newsletterModal) {
+        newsletterTriggers.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                window.hamburgerMenu?.close(); // Yan menüden açıldıysa menüyü kapat
+                newsletterModal.classList.add('active'); // active sınıfı ile CSS geçişini tetikliyoruz
+                document.body.classList.add('modal-open'); // Arkadaki sayfanın kaymasını engeller
+                if (newsletterMessage) newsletterMessage.textContent = '';
+                if (newsletterEmail) newsletterEmail.value = '';
+            });
         });
     }
 

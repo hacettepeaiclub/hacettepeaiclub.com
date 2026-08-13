@@ -1,0 +1,11 @@
+# IDE ayarları
+.idea/
+.vscode/
+*.iml
+
+# İşletim sistemi artıkları
+.DS_Store
+Thumbs.db
+
+# Ortam değişkenleri
+.env

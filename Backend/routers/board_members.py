@@ -29,7 +29,7 @@ async def get_board_members(
         limit: Optional[int] = Query(None,
                                      description="Getirilecek maksimum kayıt sayısı (Boş bırakılırsa tüm listeyi döner)")
 ):
-    query = select(BoardMember).order_by(BoardMember.order_index).offset(skip)
+    query = select(BoardMember).order_by(BoardMember.order_index, BoardMember.id).offset(skip)
 
     if limit is not None:
         query = query.limit(limit)
@@ -62,7 +62,7 @@ async def update_board_member(
     if not db_member:
         raise HTTPException(status_code=404, detail="Güncellenmek istenen üye bulunamadı.")
 
-    update_data = member_update.model_dump(exclude_unset=True)
+    update_data = member_update.model_dump(exclude_unset=True, exclude={"id"})
     for key, value in update_data.items():
         setattr(db_member, key, value)
 

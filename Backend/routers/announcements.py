@@ -29,7 +29,12 @@ async def get_announcements(
     limit: Optional[int] = Query(None, le=100,
                                   description="Getirilecek maksimum kayıt sayısı (Boş bırakılırsa tüm listeyi döner)")
 ):
-    query = select(Announcement).order_by(Announcement.published_at.desc()).offset(skip)
+    # Önce admin panelinden verilen elle sıralama, eşitlikte en yeni duyuru önce gelir
+    query = (
+        select(Announcement)
+        .order_by(Announcement.order_index, Announcement.published_at.desc(), Announcement.id.desc())
+        .offset(skip)
+    )
 
     if limit is not None:
         query = query.limit(limit)
@@ -61,8 +66,8 @@ async def update_announcement(
     if not db_announcement:
         raise HTTPException(status_code=404, detail="Güncellenmek istenen duyuru bulunamadı.")
 
-    # Sadece gönderilen alanları al (exclude_unset=True)
-    update_data = announcement_update.model_dump(exclude_unset=True)
+    # Sadece gönderilen alanları al ("id" asla ezilmez)
+    update_data = announcement_update.model_dump(exclude_unset=True, exclude={"id"})
     for key, value in update_data.items():
         setattr(db_announcement, key, value)
 

@@ -1,4 +1,5 @@
-from routers import events, projects, sponsors, settings, board_members, announcements, auth, users, uploads, newsletter  # <-- BURAYA uploads EKLEDİK
+from routers import (events, projects, sponsors, stakeholders, settings, board_members,
+                     announcements, auth, users, uploads, newsletter)
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from sqlmodel import SQLModel
@@ -110,6 +111,7 @@ app.add_middleware(
 app.include_router(events.router)
 app.include_router(projects.router)
 app.include_router(sponsors.router)
+app.include_router(stakeholders.router)
 app.include_router(settings.router)
 app.include_router(board_members.router)
 app.include_router(announcements.router)

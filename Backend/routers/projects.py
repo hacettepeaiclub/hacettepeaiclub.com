@@ -60,7 +60,7 @@ async def update_project(
     if not db_project:
         raise HTTPException(status_code=404, detail="Güncellenmek istenen proje bulunamadı.")
 
-    update_data = project_update.model_dump(exclude_unset=True)
+    update_data = project_update.model_dump(exclude_unset=True, exclude={"id"})
     for key, value in update_data.items():
         setattr(db_project, key, value)
 

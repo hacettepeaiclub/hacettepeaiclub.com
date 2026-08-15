@@ -1922,13 +1922,13 @@ body.past-hero .cancel-btn-container {
     gap: 24px;
   }
 
-  
 
-  
 
-  
 
-  
+
+
+
+
 }
 
 /* Tablet (576–768px) */
@@ -1974,9 +1974,9 @@ body.past-hero .cancel-btn-container {
     gap: 12px;
   }
 
-  
 
-  
+
+
 
   .section-title {
     font-size: 1.5rem;
@@ -2090,9 +2090,9 @@ body.past-hero .cancel-btn-container {
     gap: 8px;
   }
 
-  
 
-  
+
+
 
   .card-grid {
     grid-template-columns: 1fr;
@@ -2132,7 +2132,7 @@ body.past-hero .cancel-btn-container {
     gap: 32px;
   }
 
-  
+
 
   .stat-number {
     font-size: 2.5rem;
@@ -2160,11 +2160,11 @@ body.past-hero .cancel-btn-container {
     font-size: 1.25rem;
   }
 
-  
 
-  
 
-  
+
+
+
 
   .marquee {
     --marquee-gap: 20px;
@@ -3321,10 +3321,12 @@ body.admin-mode td.admin-only {
 }
 
 .partners-note {
-  text-align: center;
-  margin-top: 40px;
+  text-align: center !important;
+  margin: 10px auto 0 auto;
   font-size: 0.9rem;
   color: var(--text-muted);
+  width: 100%;
+  display: block;
 }
 
 .partners-note a {
@@ -3336,24 +3338,28 @@ body.admin-mode td.admin-only {
 /* --- Kart tabanlı marquee'ler (duyurular / yarışmalar) --- */
 .marquee-full {
   --marquee-gap: 30px;
-  padding: 20px 0;
+  padding: 5px 0;
 }
 
 /* Afişler kendi oranını koruduğu için kart yükseklikleri farklı olabilir;
    dikey ortalama sıranın düzenli görünmesini sağlar. */
 .marquee-full .marquee-track {
-  align-items: center;
+  align-items: stretch;
 }
 
 /* --- Duyuru Kartı Ana Yapısı --- */
 .upcoming-card {
-  width: min(380px, 82vw);
+  width: max-content;
+  max-width: min(450px, 85vw);
+  height: 100%;
   flex-shrink: 0;
   position: relative;
-  background: var(--bg-card); /* Lacivert arkaplan */
+  background: var(--bg-card);
+  /* Lacivert arkaplan */
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  padding: 0; /* Padding'i sıfırladık, resim tam otursun */
+  padding: 0;
+  /* Padding'i sıfırladık, resim tam otursun */
   transition: all var(--transition-base);
   overflow: hidden;
   display: flex;
@@ -3373,8 +3379,9 @@ body.admin-mode td.admin-only {
    dikey, yatay görseller yatay görünür. Çok uzun afişler için üst sınır var. */
 .upcoming-image {
   width: 100%;
-  background: transparent;
-  border-bottom: 1px solid var(--border-color);
+  height: 295px;
+  background: white;
+  border-bottom: 0px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3385,31 +3392,24 @@ body.admin-mode td.admin-only {
 .upcoming-image img {
   display: block;
   width: 100%;
-  height: auto;
-  /* Yaygın afiş oranları (1:1, 4:5, 2:3) sınıra takılmadan tam görünür.
-     Yalnızca aşırı uzun görseller sınırlanır. */
-  max-height: min(600px, 70vh);
-  /* Afiş asla kırpılmaz. Sınıra dayanan görsellerde kalan boşluk kartın
-     kendi rengiyle dolar; siyah bant oluşmaz. */
-  object-fit: contain;
-  padding: 0;
+  height: 100%;
+  object-fit: cover;
 }
 
-/* Görsel yoksa ikonun oturacağı sabit yükseklikli alan */
 .upcoming-image-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 180px;
+  height: 100%;
   font-size: 3rem;
   color: var(--glow);
   background: linear-gradient(135deg, rgba(79, 195, 247, 0.08), rgba(124, 77, 255, 0.06));
 }
 
-/* Yarışma kartları duyuru kartlarıyla aynı görsel yapısını kullanır */
 .competition-card {
-  width: min(350px, 82vw);
+  width: max-content;
+  max-width: min(450px, 85vw);
 }
 
 /* Alt Kısım: İçerik Alanı */
@@ -3437,17 +3437,20 @@ body.admin-mode td.admin-only {
 
 .upcoming-content h3 {
   font-family: var(--font-heading);
-  font-size: 1.3rem;
+  font-size: 1.8rem;
   font-weight: 700;
   margin-bottom: 12px;
-  color: var(--text-primary); /* AÇIK MODDA SİYAHA DÖNER */
+  color: var(--text-primary);
+  /* AÇIK MODDA SİYAHA DÖNER */
 }
 
 .upcoming-content p {
   font-size: 0.95rem;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  margin-bottom: 20px;
+  color: var(--text-muted);
+  position: relative;
+  top: 15px;
+  line-height: 1.5;
+  margin-bottom: 15px;
 }
 
 .upcoming-meta {
@@ -3456,7 +3459,8 @@ body.admin-mode td.admin-only {
   gap: 16px;
   font-size: 0.85rem;
   color: var(--text-muted);
-  margin-top: auto; /* Yazı kısa olsa bile tarihi en alta iter */
+  margin-top: auto;
+  /* Yazı kısa olsa bile tarihi en alta iter */
 }
 
 .upcoming-meta i {
@@ -3465,8 +3469,15 @@ body.admin-mode td.admin-only {
 }
 
 @keyframes pulse-soft {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.05); }
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.05);
+  }
 }
 
 /* --- Footer extras (HTML aliases) --- */
@@ -3694,9 +3705,9 @@ body.modal-open {
 }
 
 @media (max-width: 768px) {
-  
 
-  
+
+
 
   .form-row {
     grid-template-columns: 1fr;
@@ -3768,7 +3779,7 @@ body.modal-open {
 
 /* Açık mod (past-hero) aktifken, header koyu kaldığı için yazıyı beyaza zorluyoruz */
 body.past-hero #nav-newsletter-btn {
-  color: #ffffffc4; 
+  color: #ffffffc4;
 }
 
 body.past-hero #nav-newsletter-btn:hover {
@@ -3777,21 +3788,22 @@ body.past-hero #nav-newsletter-btn:hover {
 
 /* --- Bülten Modalı Açık Tema (Light Theme) Renk Düzeltmesi --- */
 body.past-hero #newsletter-modal .modal-content {
-    /* Site beyaz temada olsa bile, bu kutunun içi lacivert olduğu için yazıları beyaz/açık griye sabitler */
-    --text-primary: #ffffff;
-    --text-secondary: #cbd5e1;
-    --text-muted: #94a3b8;
+  /* Site beyaz temada olsa bile, bu kutunun içi lacivert olduğu için yazıları beyaz/açık griye sabitler */
+  --text-primary: #ffffff;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
 }
 
 body.past-hero #newsletter-modal .form-input {
-    color: #ffffff;
-    background: rgba(11, 24, 51, 0.5);
-    border: 1px solid rgba(79, 195, 247, 0.3);
+  color: #ffffff;
+  background: rgba(11, 24, 51, 0.5);
+  border: 1px solid rgba(79, 195, 247, 0.3);
 }
 
 body.past-hero #newsletter-modal .form-input::placeholder {
-    color: #94a3b8;
+  color: #94a3b8;
 }
+
 /* ==========================================================================
    37. ADMIN DÜZENLEME / SIRALAMA KONTROLLERİ
    ========================================================================== */
@@ -4040,7 +4052,7 @@ table {
   /* Mobilde araç çubuğu butonları kompakt kalır.
      Genel .btn-primary kuralı width:100% verdiği için burada sıfırlıyoruz;
      aksi halde her buton tam satır kaplayıp çubuğu gereksiz uzatıyor. */
-  .admin-toolbar-inner > button {
+  .admin-toolbar-inner>button {
     width: auto !important;
     margin-left: 0 !important;
     padding: 5px 10px !important;

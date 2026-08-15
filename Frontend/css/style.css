@@ -1985,6 +1985,17 @@ body.past-hero .cancel-btn-container {
   .section-subtitle {
     font-size: 0.95rem;
     margin-bottom: 40px;
+    text-align: center;
+    font-weight: normal;
+    font-style: normal;
+    color: var(--text-muted);
+  }
+
+  #hakkimizda .section-subtitle {
+    text-align: left;
+    font-weight: 600;
+    font-style: italic;
+    color: var(--text-secondary);
   }
 
   .modal-content {
@@ -2061,11 +2072,52 @@ body.past-hero .cancel-btn-container {
 
   /* Logo mobilde de rahat okunacak kadar büyük ve asla sıkıştırılmaz */
   #logo-img {
-    height: 46px;
-    width: auto;
-    max-width: none;
-    flex: 0 0 auto;
-    object-fit: contain;
+    height: 35px !important;
+    width: auto !important;
+    max-width: none !important;
+    flex: 0 0 auto !important;
+    object-fit: contain !important;
+  }
+
+  #hamburger-btn {
+    width: 24px;
+    height: 24px;
+  }
+
+  #hamburger-btn span {
+    width: 15px;
+    height: 1.5px;
+  }
+
+  #hamburger-btn span::before,
+  #hamburger-btn span::after {
+    height: 1.5px;
+  }
+
+  #hamburger-btn span::before {
+    top: -5px;
+  }
+
+  #hamburger-btn span::after {
+    top: 5px;
+  }
+
+  .btn-theme-toggle,
+  .header-right .btn-member,
+  .header-right .nav-link,
+  .header-right .btn-contact {
+    width: 24px !important;
+    height: 24px !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 0.7rem !important;
+    border-radius: 6px !important;
+  }
+
+  .header-right .btn-text {
+    display: none;
   }
 
   #side-menu {
@@ -2073,7 +2125,7 @@ body.past-hero .cancel-btn-container {
   }
 
   #hero {
-    padding: 80px 16px 48px;
+    padding: 40px 16px 70px;
     min-height: auto;
   }
 
@@ -2124,7 +2176,16 @@ body.past-hero .cancel-btn-container {
 
   .event-card,
   .competition-card {
-    padding: 24px;
+    background-color: black;
+    
+  }
+
+  .competition-card img {
+    object-fit: contain !important;
+  }
+
+  .competition-card .upcoming-image {
+    background-color: black !important;
   }
 
   .footer-grid {
@@ -3491,6 +3552,9 @@ body.admin-mode td.admin-only {
 
 .footer-col ul li {
   margin-bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  word-break: break-word;
 }
 
 .footer-col ul li a,
@@ -3510,6 +3574,8 @@ body.admin-mode td.admin-only {
   color: var(--glow);
   opacity: 0.7;
   width: 16px;
+  flex-shrink: 0;
+  margin-top: 4px; /* Adjust vertical alignment if necessary due to flex-start */
 }
 
 .footer-about .footer-logo {
@@ -3729,8 +3795,15 @@ body.modal-open {
 }
 
 @media (max-width: 576px) {
+  #hero {
+    padding-bottom: 70px;
+  }
+
   .hero-stats {
-    gap: 16px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px 10px;
+    margin-top: 30px;
   }
 
   .hero-stats .stat-number {

@@ -331,15 +331,18 @@
                 <h2 class="section-title scroll-reveal">İş Birliklerimiz</h2>
                 <p class="section-subtitle scroll-reveal">Birlikte çalıştığımız kurumlar ve şirketler</p>
 
-                <div class="marquee scroll-reveal" data-marquee data-marquee-speed="45">
-                    <!-- JS ile API'den gelen iş birlikleri buraya basılır -->
-                    <div class="marquee-track" id="sponsors-dynamic-track"></div>
-                </div>
+                <!-- JS ile API'den gelen sponsorlar, türlerine (kategorilerine) göre
+                     gruplanmış kartlar hâlinde buraya basılır. Kaydırmalı şerit
+                     değil; sabit, kategorilere ayrılmış bir düzen kullanılır. -->
+                <div class="sponsor-groups scroll-reveal" id="sponsor-groups"></div>
 
-                <!-- Admin: İş Birliği Ekle Butonu -->
-                <div class="admin-only" style="text-align: center; margin-top: 30px;">
+                <!-- Admin: İş Birliği / Kategori Ekle Butonları -->
+                <div class="admin-only" style="text-align: center; margin-top: 30px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;">
                     <button id="admin-add-sponsor-btn" class="btn-primary">
                         <i class="fa-solid fa-plus"></i> İş Birliği Ekle
+                    </button>
+                    <button id="admin-add-sponsor-category-btn" class="btn-secondary">
+                        <i class="fa-solid fa-layer-group"></i> Sponsor Türü / Kategorisi Ekle
                     </button>
                 </div>
 

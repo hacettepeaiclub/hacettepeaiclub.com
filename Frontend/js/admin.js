@@ -439,9 +439,13 @@ function openAdminForm({ title, icon = 'fa-pen-to-square', fields, values = {}, 
           <textarea data-field="${field.name}" rows="${field.rows || 3}" placeholder="${escapeHTML(field.placeholder || '')}">${escapeHTML(value)}</textarea>${hint}</label>`;
 
       case 'select': {
-        const options = field.options.map(opt =>
-          `<option value="${escapeHTML(opt)}" ${String(value) === String(opt) ? 'selected' : ''}>${escapeHTML(opt)}</option>`
-        ).join('');
+        // Seçenekler ya düz metin dizisi ("Etkinlik" gibi) ya da { value, label }
+        // nesneleri olabilir (örn. sponsor kategorileri: value=id, label=isim).
+        const options = field.options.map((opt) => {
+          const optValue = (opt && typeof opt === 'object') ? opt.value : opt;
+          const optLabel = (opt && typeof opt === 'object') ? opt.label : opt;
+          return `<option value="${escapeHTML(String(optValue))}" ${String(value) === String(optValue) ? 'selected' : ''}>${escapeHTML(String(optLabel))}</option>`;
+        }).join('');
         return `<label>${escapeHTML(field.label)}${required}
           <select data-field="${field.name}">${options}</select>${hint}</label>`;
       }
@@ -665,12 +669,13 @@ async function reorderItems(items, index, direction, endpoint, base = 0) {
 // ---------------------------------------------------------------------------
 
 async function loadAndRenderAll() {
-  const [events, members, projects, announcements, sponsors, stakeholders] = await Promise.all([
+  const [events, members, projects, announcements, sponsors, sponsorCategories, stakeholders] = await Promise.all([
     apiGet('/events'),
     apiGet('/board-members'),
     apiGet('/projects'),
     apiGet('/announcements'),
     apiGet('/sponsors'),
+    apiGet('/sponsor-categories'),
     apiGet('/stakeholders'),
   ]);
 
@@ -680,12 +685,7 @@ async function loadAndRenderAll() {
   renderBoardMembers(members);
   renderProjects(projects);
   renderAnnouncements(announcements);
-  renderPartners(sponsors, {
-    trackId: 'sponsors-dynamic-track',
-    endpoint: '/sponsors',
-    emptyText: 'Henüz bir iş birliği eklenmemiş.',
-    entityLabel: 'iş birliği',
-  });
+  renderSponsors(sponsors, sponsorCategories);
   renderPartners(stakeholders, {
     trackId: 'stakeholders-dynamic-track',
     endpoint: '/stakeholders',
@@ -1358,7 +1358,258 @@ function openMemberForm(existing = null) {
 }
 
 // ===========================================================================
-// İŞ BİRLİKLERİ & AI FEST PAYDAŞLARI (ortak render)
+// SPONSORLAR (Tür/Kategori + Seviyeye göre gruplu, kaymayan kart düzeni)
+// ===========================================================================
+/** En son yüklenen kategori listesi; sponsor formu bu üzerinden doldurulur. */
+let sponsorCategoriesCache = [];
+
+/**
+ * Bilinen seviye adları için özel bir rozet rengi, tanımadıkları için de
+ * nötr bir rozet döner. Seviye alanı serbest metin olduğundan (yalnızca
+ * "Altın/Platin/Gümüş" ile sınırlı değildir) burada bir beyaz liste değil,
+ * anahtar kelime eşleşmesi kullanılır.
+ */
+function sponsorLevelClass(tier) {
+  const t = (tier || '').toLocaleLowerCase('tr').trim();
+  if (!t) return '';
+  if (t.includes('altın') || t.includes('gold')) return 'sponsor-level--gold';
+  if (t.includes('platin')) return 'sponsor-level--platinum';
+  if (t.includes('gümüş') || t.includes('silver')) return 'sponsor-level--silver';
+  if (t.includes('bronz') || t.includes('bronze')) return 'sponsor-level--bronze';
+  return 'sponsor-level--generic';
+}
+
+/** order_index (yoksa id) sırasına göre karşılaştırma. */
+function byOrderIndex(a, b) {
+  return (a.order_index ?? 0) - (b.order_index ?? 0) || (a.id ?? 0) - (b.id ?? 0);
+}
+
+/**
+ * Sponsorları, türlerine (kategorilerine) göre gruplayıp kaymayan bir kart
+ * düzeninde basar. Her kategori kendi sırasına göre üst üste dizilir;
+ * kategorisi olmayan sponsorlar en sona, "Diğer" başlığı altında toplanır.
+ */
+function renderSponsors(sponsors, categories) {
+  sponsorCategoriesCache = categories || [];
+  const container = document.getElementById('sponsor-groups');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  if (sponsors.length === 0 && sponsorCategoriesCache.length === 0) {
+    container.innerHTML = emptyStateHtml('Henüz bir iş birliği eklenmemiş.');
+    return;
+  }
+
+  const orderedCategories = sponsorCategoriesCache.slice().sort(byOrderIndex);
+
+  const groups = orderedCategories.map(category => ({
+    category,
+    items: sponsors.filter(s => s.category_id === category.id).sort(byOrderIndex),
+  }));
+
+  const uncategorized = sponsors.filter(s => !s.category_id).sort(byOrderIndex);
+  if (uncategorized.length > 0 || groups.length === 0) {
+    groups.push({ category: null, items: uncategorized });
+  }
+
+  groups.forEach((group, groupIndex) => {
+    // Boş kategoriler ziyaretçilere gösterilmez; admin panelinde ise
+    // yönetilebilsin (yeniden adlandır / sil / taşı) diye görünür kalır.
+    if (group.items.length === 0 && !isAdmin()) return;
+    container.appendChild(buildSponsorCategoryGroup(group, groupIndex, orderedCategories));
+  });
+}
+
+/** Tek bir kategori bloğunu (başlık + kart ızgarası) oluşturur. */
+function buildSponsorCategoryGroup(group, groupIndex, orderedCategories) {
+  const { category, items } = group;
+  const catIndex = category ? orderedCategories.findIndex(c => c.id === category.id) : -1;
+
+  const section = document.createElement('div');
+  section.className = 'sponsor-category';
+
+  const header = document.createElement('div');
+  header.className = 'sponsor-category-header';
+  header.innerHTML = `<h3>${escapeHTML(category ? category.name : 'Diğer')}</h3>`;
+
+  if (isAdmin() && category) {
+    header.classList.add('has-controls');
+    header.appendChild(buildAdminControls({
+      onEdit: () => openSponsorCategoryForm(category),
+      onDelete: () => deleteSponsorCategory(category),
+      onMoveUp: () => reorderItems(orderedCategories, catIndex, -1, '/sponsor-categories'),
+      onMoveDown: () => reorderItems(orderedCategories, catIndex, 1, '/sponsor-categories'),
+    }, { inline: true, isFirst: catIndex === 0, isLast: catIndex === orderedCategories.length - 1 }));
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'sponsor-grid';
+
+  if (items.length === 0) {
+    grid.innerHTML = `<p class="sponsor-grid-empty">Bu kategoride henüz bir şirket eklenmemiş.</p>`;
+  } else {
+    items.forEach((item, index) => grid.appendChild(buildSponsorCard(item, index, items)));
+  }
+
+  section.appendChild(header);
+  section.appendChild(grid);
+  return section;
+}
+
+/** Tek bir sponsor kartını (logo + isim + seviye rozeti + not) oluşturur. */
+function buildSponsorCard(item, index, items) {
+  const logoHtml = item.logo_url && item.logo_url.startsWith('fa-')
+    ? `<i class="${escapeHTML(item.logo_url)}"></i>`
+    : `<img src="${escapeHTML(item.logo_url)}" alt="${escapeHTML(item.name)}" loading="lazy">`;
+
+  const levelBadge = item.tier
+    ? `<span class="sponsor-level-badge ${sponsorLevelClass(item.tier)}">${escapeHTML(item.tier)}</span>`
+    : '';
+  const captionHtml = item.caption
+    ? `<span class="sponsor-caption">${escapeHTML(item.caption)}</span>`
+    : '';
+
+  const inner = `
+    <div class="partner-logo-box">${logoHtml}</div>
+    <span class="partner-name">${escapeHTML(item.name)}</span>
+    ${levelBadge}
+    ${captionHtml}
+  `;
+
+  const card = document.createElement('div');
+  card.className = 'sponsor-card';
+  card.innerHTML = item.website_url
+    ? `<a href="${escapeHTML(item.website_url)}" target="_blank" rel="noopener">${inner}</a>`
+    : inner;
+
+  if (isAdmin()) {
+    card.appendChild(buildAdminControls({
+      onEdit: () => openSponsorForm(item),
+      onDelete: () => confirmDelete('Bu iş birliği kaydını silmek', `/sponsors/${item.id}`),
+      onMoveUp: () => reorderItems(items, index, -1, '/sponsors'),
+      onMoveDown: () => reorderItems(items, index, 1, '/sponsors'),
+    }, { isFirst: index === 0, isLast: index === items.length - 1 }));
+  }
+
+  return card;
+}
+
+/** Sponsor (şirket) ekleme/düzenleme formu: tür, seviye ve logo altı not içerir. */
+function openSponsorForm(existing = null) {
+  const editing = Boolean(existing);
+
+  openAdminForm({
+    title: editing ? 'İş Birliği Kaydını Düzenle' : 'Yeni İş Birliği Ekle',
+    icon: 'fa-handshake',
+    values: existing ? { ...existing, category_id: existing.category_id != null ? String(existing.category_id) : '' } : {},
+    fields: [
+      { name: 'name', label: 'Kurum / Şirket Adı', required: true },
+      {
+        name: 'logo_url',
+        label: 'Logo',
+        type: 'image',
+        allowIcon: true,
+        required: true,
+        placeholder: 'Resim linki veya ikon (Örn: fa-solid fa-building)',
+        hint: 'Logo kare kutuya sığdırılmaz; yatay logo yatay, dikey logo dikey görünür.',
+      },
+      { name: 'website_url', label: 'Website URL', placeholder: 'Örn: https://www.hacettepe.edu.tr' },
+      {
+        name: 'category_id',
+        label: 'Sponsor Türü / Kategorisi',
+        type: 'select',
+        options: [
+          { value: '', label: '— Kategorisiz (Diğer) —' },
+          ...sponsorCategoriesCache.slice().sort(byOrderIndex).map(c => ({ value: String(c.id), label: c.name })),
+        ],
+        hint: 'Listede yoksa önce aşağıdaki "Sponsor Türü / Kategorisi Ekle" butonunu kullanın.',
+      },
+      {
+        name: 'tier',
+        label: 'Seviye (opsiyonel)',
+        placeholder: 'Örn: Altın, Platin, Gümüş, Bronz',
+        hint: 'Boş bırakılabilir. Doldurulursa logonun altında bir rozet olarak gösterilir.',
+      },
+      {
+        name: 'caption',
+        label: 'Logo Altı Not (opsiyonel)',
+        placeholder: 'Örn: 2025-2026 Dönem Sponsoru',
+        hint: 'Tür ya da seviye seçmeseniz bile, logonun altında görünecek serbest bir not eklemek için kullanabilirsiniz.',
+      },
+    ],
+    onSubmit: async (data) => {
+      const payload = {
+        name: data.name,
+        logo_url: data.logo_url,
+        website_url: data.website_url || null,
+        category_id: data.category_id ? Number(data.category_id) : null,
+        tier: data.tier || '',
+        caption: data.caption || null,
+        order_index: existing?.order_index ?? 0,
+        is_active: true,
+      };
+
+      const ok = editing
+        ? await apiSend('PUT', `/sponsors/${existing.id}`, payload, 'Kayıt güncellenemedi.')
+        : await apiSend('POST', '/sponsors/', payload, 'Kayıt eklenemedi.');
+
+      if (ok) await loadAndRenderAll();
+      return ok;
+    },
+  });
+}
+
+/** Yeni sponsor türü/kategorisi ekleme veya mevcut birini yeniden adlandırma formu. */
+function openSponsorCategoryForm(existing = null) {
+  const editing = Boolean(existing);
+
+  openAdminForm({
+    title: editing ? 'Sponsor Türünü / Kategorisini Düzenle' : 'Yeni Sponsor Türü / Kategorisi Ekle',
+    icon: 'fa-layer-group',
+    values: existing || {},
+    fields: [
+      {
+        name: 'name',
+        label: 'Kategori Adı',
+        required: true,
+        placeholder: 'Örn: Dönem Sponsoru, Mekan Sponsoru, Gençlik Yetenek Partneri',
+      },
+    ],
+    onSubmit: async (data) => {
+      const payload = {
+        name: data.name,
+        order_index: existing?.order_index ?? (
+          sponsorCategoriesCache.length
+            ? Math.max(...sponsorCategoriesCache.map(c => c.order_index ?? 0)) + 1
+            : 0
+        ),
+      };
+
+      const ok = editing
+        ? await apiSend('PUT', `/sponsor-categories/${existing.id}`, payload, 'Kategori güncellenemedi.')
+        : await apiSend('POST', '/sponsor-categories/', payload, 'Kategori eklenemedi.');
+
+      if (ok) await loadAndRenderAll();
+      return ok;
+    },
+  });
+}
+
+/** Bir sponsor kategorisini siler; içindeki şirketler "Diğer" grubuna taşınır. */
+async function deleteSponsorCategory(category) {
+  const confirmed = confirm(
+    `"${category.name}" kategorisini silmek istediğinize emin misiniz?\n` +
+    `İçindeki şirketler silinmez; "Diğer" grubuna taşınır.`
+  );
+  if (!confirmed) return;
+
+  const ok = await apiSend('DELETE', `/sponsor-categories/${category.id}`, undefined, 'Kategori silinemedi.');
+  if (ok) await loadAndRenderAll();
+}
+
+// ===========================================================================
+// AI FEST PAYDAŞLARI (ortak render, hâlâ kayan şerit)
 // ===========================================================================
 /**
  * Logo şeritlerini basar. Logolar kare bir kutuya sıkıştırılmaz; yalnızca
@@ -1442,9 +1693,6 @@ function openPartnerForm({ endpoint, entityLabel, existing = null }) {
         order_index: existing?.order_index ?? 0,
         is_active: true,
       };
-      // Sponsor tablosunda ek bir "tier" alanı bulunur
-      if (endpoint === '/sponsors') payload.tier = existing?.tier || 'Standart';
-
       const ok = editing
         ? await apiSend('PUT', `${endpoint}/${existing.id}`, payload, 'Kayıt güncellenemedi.')
         : await apiSend('POST', `${endpoint}/`, payload, 'Kayıt eklenemedi.');
@@ -1501,8 +1749,8 @@ document.getElementById('admin-add-announcement-btn')?.addEventListener('click',
 document.getElementById('admin-add-project-btn')?.addEventListener('click', () => openProjectForm());
 document.getElementById('admin-add-member-btn')?.addEventListener('click', () => openMemberForm());
 document.getElementById('admin-add-competition-btn')?.addEventListener('click', () => openCompetitionForm());
-document.getElementById('admin-add-sponsor-btn')?.addEventListener('click', () =>
-  openPartnerForm({ endpoint: '/sponsors', entityLabel: 'iş birliği' }));
+document.getElementById('admin-add-sponsor-btn')?.addEventListener('click', () => openSponsorForm());
+document.getElementById('admin-add-sponsor-category-btn')?.addEventListener('click', () => openSponsorCategoryForm());
 document.getElementById('admin-add-stakeholder-btn')?.addEventListener('click', () =>
   openPartnerForm({ endpoint: '/stakeholders', entityLabel: 'paydaş topluluk' }));
 

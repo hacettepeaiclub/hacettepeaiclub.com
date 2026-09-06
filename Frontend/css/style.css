@@ -1174,6 +1174,162 @@ body.admin-mode .marquee-item {
 }
 
 /* --------------------------------------------------------------------------
+   22b. SPONSOR GRUPLARI (Tür/Kategoriye göre sabit, kaymayan düzen)
+   --------------------------------------------------------------------------
+   İş Birliklerimiz artık kayan bir şerit değil; her sponsor türü/kategorisi
+   kendi başlığıyla alt alta dizilir, o kategorideki şirketler ise sabit bir
+   kart ızgarasında yan yana gösterilir. Kategoriler ve kart içindeki
+   şirketler admin panelinden bağımsız olarak yukarı/aşağı taşınabilir.
+   -------------------------------------------------------------------------- */
+.sponsor-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  margin-top: 20px;
+}
+
+.sponsor-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sponsor-category-header h3 {
+  color: var(--glow);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin: 0;
+}
+
+/* Yalnızca gerçek bir kategoriye (admin) kontrolleri eklendiğinde başlık
+   sola, kontroller sağa yaslanır; "Diğer" grubunda başlık ortalı kalır. */
+.sponsor-category-header.has-controls {
+  justify-content: space-between;
+}
+
+/* Grid değil flex: kartlar kendi genişliklerince yer kaplar, sıraya göre
+   üste alta akar (satır dolunca alt satıra sarar) ve az sayıda kart varken
+   de satır ortalanır (sabit eş-genişlikli kolonlarda olduğu gibi sola
+   yapışık kalmaz). */
+.sponsor-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  gap: 24px;
+}
+
+.sponsor-grid-empty {
+  width: 100%;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 12px;
+}
+
+.sponsor-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  text-align: center;
+  padding: 24px 18px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  transition: transform var(--transition-base),
+    box-shadow var(--transition-base),
+    border-color var(--transition-base);
+  /* Kart, içindeki logonun doğal genişliğine göre büyüyüp küçülür; dar
+     logolarda sıkışmasın, geniş (bant tipi) logolarda da aşırı büyümesin. */
+  flex: 0 1 auto;
+  min-width: 160px;
+  max-width: 320px;
+}
+
+.sponsor-card .partner-logo-box {
+  /* Kartın tam genişliği: img'in max-width:%100 kuralı buna göre hesaplanır,
+     böylece geniş logo kartın kenarını asla aşamaz (bkz. aşağıdaki kural). */
+  width: 100%;
+}
+
+/* Genel .partner-logo-box img kuralı genişliği 240px ile sınırlar (kayan
+   şeritteki paydaş logoları için). Sponsor kartlarında bu çok dar kalabildiği
+   için burada serbest bırakılır: yükseklik yine sabit, genişlik kartın kendi
+   genişliğine kadar (bkz. yukarıdaki kural) serbesttir. */
+.sponsor-card .partner-logo-box img {
+  max-width: 100%;
+}
+
+.sponsor-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-card-hover);
+  border-color: rgba(79, 195, 247, 0.3);
+}
+
+.sponsor-card a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  width: 100%;
+}
+
+.sponsor-level-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 3px 12px;
+  border-radius: var(--radius-full);
+  color: #1a1a1a;
+  background: rgba(79, 195, 247, 0.18);
+}
+
+.sponsor-level--gold {
+  background: linear-gradient(120deg, #f6d365, #d4af37);
+  color: #3a2c00;
+}
+
+.sponsor-level--platinum {
+  background: linear-gradient(120deg, #e0e5ec, #a9b4c4);
+  color: #262b33;
+}
+
+.sponsor-level--silver {
+  background: linear-gradient(120deg, #d7d7d7, #b0b0b0);
+  color: #2b2b2b;
+}
+
+.sponsor-level--bronze {
+  background: linear-gradient(120deg, #d8a878, #a9673a);
+  color: #3a2213;
+}
+
+.sponsor-level--generic {
+  background: rgba(124, 77, 255, 0.2);
+  color: var(--glow-secondary);
+}
+
+.sponsor-caption {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+/* --------------------------------------------------------------------------
    23. MODALS
    -------------------------------------------------------------------------- */
 .modal-overlay {

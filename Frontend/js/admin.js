@@ -469,6 +469,11 @@ function openAdminForm({ title, icon = 'fa-pen-to-square', fields, values = {}, 
         return `<label>${escapeHTML(field.label)}${required}
           <input type="date" data-field="${field.name}" value="${escapeHTML(toDateInputValue(value))}" />${hint}</label>`;
 
+      case 'checkbox':
+        return `<label class="admin-form-check">
+          <input type="checkbox" data-field="${field.name}" ${value ? 'checked' : ''} />
+          <span>${escapeHTML(field.label)}</span>${hint}</label>`;
+
       default:
         return `<label>${escapeHTML(field.label)}${required}
           <input type="text" data-field="${field.name}" value="${escapeHTML(value)}" placeholder="${escapeHTML(field.placeholder || '')}" />${hint}</label>`;
@@ -537,6 +542,10 @@ function openAdminForm({ title, icon = 'fa-pen-to-square', fields, values = {}, 
 
     for (const field of fields) {
       const input = overlay.querySelector(`[data-field="${field.name}"]`);
+      if (field.type === 'checkbox') {
+        data[field.name] = Boolean(input?.checked);
+        continue;
+      }
       data[field.name] = input ? input.value.trim() : '';
     }
 
@@ -1385,6 +1394,53 @@ function byOrderIndex(a, b) {
 }
 
 /**
+ * Bir kategorinin "indirim sponsorları" kategorisi olup olmadığı.
+ * Tek yetkili kaynak formdaki `is_discount` kutusudur. Alan yalnızca
+ * veritabanına henüz eklenmemişse (göç çalıştırılmamışsa) devreye giren yedek,
+ * kategori adında "indirim" arar. indirimler.js ile aynı mantık.
+ *
+ * DİKKAT: /indirim/i gibi bir regex burada çalışmaz. JS'in büyük/küçük harf
+ * eşlemesi Türkçe'ye duyarsız olduğu için "İndirim" (noktalı büyük İ) "i" ile
+ * eşleşmez. Bu yüzden ad, hem Türkçe hem İngilizce kurallarıyla küçültülüp
+ * karşılaştırılır ("İndirim" → tr, "INDIRIM" → en).
+ */
+function isDiscountCategory(category) {
+  if (!category) return false;
+
+  // Sütun mevcutsa formdaki kutu tek yetkilidir: kutuyu kaldıran admin,
+  // kategori adında "indirim" geçse bile kategoriyi listeden çıkarabilir.
+  if (typeof category.is_discount === 'boolean') return category.is_discount;
+
+  // Sütun henüz yoksa (göç çalıştırılmamışsa) kategori adına bakılır.
+  const name = category.name || '';
+  return name.toLocaleLowerCase('tr').includes('indirim')
+    || name.toLocaleLowerCase('en').includes('indirim');
+}
+
+/**
+ * Bir kaydın indirim oranı. Asıl alan `discount`; ancak veritabanında bu sütun
+ * henüz yoksa (göç çalıştırılmamışsa) admin oranı serbest `tier` alanına
+ * yazmış olabilir. Bu yüzden tier YALNIZCA oran gibi görünüyorsa (rakam ya da
+ * % içeriyorsa) yedek olarak kullanılır; "Altın", "Platin" gibi seviye
+ * değerleri indirim sanılmaz.
+ */
+function sponsorDiscountValue(item) {
+  const explicit = (item.discount || '').trim();
+  if (explicit) return explicit;
+
+  const tier = (item.tier || '').trim();
+  return /[\d%]/.test(tier) ? tier : '';
+}
+
+/** Yalın sayılar "%15" olarak; serbest metinler olduğu gibi gösterilir. */
+function formatDiscount(raw) {
+  const value = (raw || '').trim();
+  if (!value) return '';
+  if (/^\d+([.,]\d+)?$/.test(value)) return `%${value}`;
+  return value;
+}
+
+/**
  * Sponsorları, türlerine (kategorilerine) göre gruplayıp kaymayan bir kart
  * düzeninde basar. Her kategori kendi sırasına göre üst üste dizilir;
  * kategorisi olmayan sponsorlar en sona, "Diğer" başlığı altında toplanır.
@@ -1449,7 +1505,8 @@ function buildSponsorCategoryGroup(group, groupIndex, orderedCategories) {
   if (items.length === 0) {
     grid.innerHTML = `<p class="sponsor-grid-empty">Bu kategoride henüz bir şirket eklenmemiş.</p>`;
   } else {
-    items.forEach((item, index) => grid.appendChild(buildSponsorCard(item, index, items)));
+    const showDiscount = isDiscountCategory(category);
+    items.forEach((item, index) => grid.appendChild(buildSponsorCard(item, index, items, showDiscount)));
   }
 
   section.appendChild(header);
@@ -1457,8 +1514,12 @@ function buildSponsorCategoryGroup(group, groupIndex, orderedCategories) {
   return section;
 }
 
-/** Tek bir sponsor kartını (logo + isim + seviye rozeti + not) oluşturur. */
-function buildSponsorCard(item, index, items) {
+/**
+ * Tek bir sponsor kartını (logo + isim + seviye rozeti + not) oluşturur.
+ * @param {boolean} showDiscount İndirim kategorisindeyse oran da rozet olarak
+ *                               gösterilir; indirimler.html ile aynı veri.
+ */
+function buildSponsorCard(item, index, items, showDiscount = false) {
   const logoHtml = item.logo_url && item.logo_url.startsWith('fa-')
     ? `<i class="${escapeHTML(item.logo_url)}"></i>`
     : `<img src="${escapeHTML(item.logo_url)}" alt="${escapeHTML(item.name)}" loading="lazy">`;
@@ -1470,9 +1531,15 @@ function buildSponsorCard(item, index, items) {
     ? `<span class="sponsor-caption">${escapeHTML(item.caption)}</span>`
     : '';
 
+  const discount = showDiscount ? formatDiscount(sponsorDiscountValue(item)) : '';
+  const discountBadge = discount
+    ? `<span class="sponsor-discount-badge"><i class="fa-solid fa-percent"></i>${escapeHTML(discount)} indirim</span>`
+    : '';
+
   const inner = `
     <div class="partner-logo-box">${logoHtml}</div>
     <span class="partner-name">${escapeHTML(item.name)}</span>
+    ${discountBadge}
     ${levelBadge}
     ${captionHtml}
   `;
@@ -1537,6 +1604,14 @@ function openSponsorForm(existing = null) {
         placeholder: 'Örn: 2025-2026 Dönem Sponsoru',
         hint: 'Tür ya da seviye seçmeseniz bile, logonun altında görünecek serbest bir not eklemek için kullanabilirsiniz.',
       },
+      {
+        name: 'discount',
+        label: 'Üye İndirimi (opsiyonel)',
+        placeholder: 'Örn: %15',
+        hint: 'Yalnızca "İndirim kategorisi" işaretli bir kategori seçtiyseniz kullanılır. '
+          + 'Buraya yazdığınız oran hem bu kartta hem de Üye İndirimleri sayfasında görünür. '
+          + 'Sayı yazarsanız (örn. 15) otomatik olarak "%15" gösterilir.',
+      },
     ],
     onSubmit: async (data) => {
       const payload = {
@@ -1546,6 +1621,7 @@ function openSponsorForm(existing = null) {
         category_id: data.category_id ? Number(data.category_id) : null,
         tier: data.tier || '',
         caption: data.caption || null,
+        discount: data.discount || null,
         order_index: existing?.order_index ?? 0,
         is_active: true,
       };
@@ -1573,12 +1649,21 @@ function openSponsorCategoryForm(existing = null) {
         name: 'name',
         label: 'Kategori Adı',
         required: true,
-        placeholder: 'Örn: Dönem Sponsoru, Mekan Sponsoru, Gençlik Yetenek Partneri',
+        placeholder: 'Örn: Dönem Sponsoru, Mekan Sponsoru, Anlaşmalı Kafeler',
+      },
+      {
+        name: 'is_discount',
+        label: 'Bu bir indirim kategorisidir (anlaşmalı kafeler vb.)',
+        type: 'checkbox',
+        hint: 'İşaretlerseniz bu kategorideki kurumlar, oranlarıyla birlikte '
+          + '"Üye İndirimleri" sayfasında da listelenir. İki ekran aynı kayıtları '
+          + 'kullandığı için ayrıca bir liste tutmanız gerekmez.',
       },
     ],
     onSubmit: async (data) => {
       const payload = {
         name: data.name,
+        is_discount: Boolean(data.is_discount),
         order_index: existing?.order_index ?? (
           sponsorCategoriesCache.length
             ? Math.max(...sponsorCategoriesCache.map(c => c.order_index ?? 0)) + 1

@@ -12,11 +12,13 @@ Hacettepe Üniversitesi Yapay Zeka Topluluğu'nun resmi web sitesi. Statik bir f
 .
 ├── Frontend/          Statik site (HTML / CSS / vanilla JS)
 │   ├── index.html
+│   ├── indirimler.html       # Üye indirimleri (anlaşmalı kafeler)
 │   ├── css/style.css
 │   ├── js/
 │   │   ├── app.js          # Genel site mantığı
 │   │   ├── admin.js         # Yönetim paneli mantığı
 │   │   ├── contact.js       # İletişim formu (EmailJS entegrasyonu)
+│   │   ├── indirimler.js    # Üye indirimleri sayfası
 │   │   └── neural-bg.js     # Arka plan animasyonu
 │   └── assets/               # Görseller, logolar, takım fotoğrafları
 │

@@ -76,7 +76,7 @@ pytest
 | Projeler | `/projects` | |
 | Duyurular | `/announcements` | Detaylar `content` alanında JSON olarak tutulur |
 | Yönetim Kurulu | `/board-members` | |
-| İş Birlikleri | `/sponsors` | |
+| İş Birlikleri | `/sponsors`, `/sponsor-categories` | `is_discount` işaretli bir kategorideki kayıtlar, `discount` oranlarıyla `indirimler.html` sayfasında da listelenir |
 | AI FEST Paydaşları | `/stakeholders` | |
 | E-Bülten | `/newsletter` | |
 | Kimlik Doğrulama | `/auth`, `/users` | |

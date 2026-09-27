@@ -68,6 +68,11 @@ class SponsorCategory(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(unique=True, index=True)
     order_index: int = Field(default=0)
+    # İndirim kategorisi mi? İşaretlenirse bu kategorideki kurumlar (anlaşmalı
+    # kafeler vb.) ana sayfadaki sponsor bölümünün yanı sıra "Üye İndirimleri"
+    # sayfasında da indirim oranlarıyla listelenir. Böylece indirim sayfası
+    # sponsor bölümüyle otomatik senkron kalır; ayrı bir liste tutulmaz.
+    is_discount: bool = Field(default=False)
 
 class Sponsor(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -84,6 +89,10 @@ class Sponsor(SQLModel, table=True):
     tier: str = Field(default="")
     # Tür/seviye belirlenmese bile logonun altına yazılabilecek serbest not.
     caption: Optional[str] = Field(default=None)
+    # Üyelere kasada uygulanan indirim. Serbest metin olduğu için "%15" kadar
+    # "%10 (kahvede)" gibi değerler de yazılabilir. Yalnızca is_discount
+    # işaretli bir kategorideki kayıtlarda anlam taşır.
+    discount: Optional[str] = Field(default=None)
     order_index: int = Field(default=0)
     is_active: bool = Field(default=True)
 

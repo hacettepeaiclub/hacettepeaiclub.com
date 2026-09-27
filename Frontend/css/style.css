@@ -4171,6 +4171,38 @@ body.past-hero .admin-modal-form .admin-inline-form label {
   color: var(--text-muted);
 }
 
+/* Onay kutusu alanı (type: 'checkbox'). Genel `.admin-inline-form input`
+   kuralı tüm girdilere width:100% verdiği için burada sıfırlanır; aksi halde
+   kutu satırın tamamına yayılıp etiketin altında kalır. */
+.admin-inline-form .admin-form-check {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 10px;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+
+.admin-inline-form .admin-form-check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--glow);
+  cursor: pointer;
+}
+
+.admin-inline-form .admin-form-check>span {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* İpucu metni kutunun altına, etiketle aynı kolona hizalanır. */
+.admin-inline-form .admin-form-check .admin-form-hint {
+  grid-column: 2;
+  margin-top: 2px;
+}
+
 .admin-upload-box {
   background: rgba(79, 195, 247, 0.1);
   border: 1px solid rgba(79, 195, 247, 0.2);
@@ -4292,4 +4324,564 @@ table {
   .side-menu-actions {
     padding: 14px 20px 4px;
   }
+}
+/* ==========================================================================
+   39. ÜYE İNDİRİMLERİ (Header butonu + indirimler.html)
+   --------------------------------------------------------------------------
+   Anlaşmalı kafelerde üyelere kasada uygulanan indirimler. Sayfanın verisi
+   ana sayfadaki iş birlikleri bölümüyle aynı kaynaktan gelir; burada yalnızca
+   sunum katmanı tanımlıdır.
+   ========================================================================== */
+:root {
+  /* İndirim vurgusu: sitenin mavi/mor paletinden bilinçli olarak ayrışır ki
+     header'daki çağrı butonu diğer aksiyonların arasında kaybolmasın. */
+  --discount-accent: #00c853;
+  --discount-accent-2: #00acc1;
+  --discount-ink: #04231a;
+}
+
+/* --------------------------------------------------------------------------
+   39.1 HEADER BUTONU
+   Hamburger menüde DEĞİL: mobilde de header'da kalır, yalnızca metni kısalır.
+   Bu yüzden mobildeki "header-right butonlarını 24x24 ikona indir" kuralının
+   seçicilerine bilinçli olarak dahil edilmemiştir.
+   -------------------------------------------------------------------------- */
+.btn-discount {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 9px 16px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 0.85rem;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--discount-ink);
+  background: linear-gradient(135deg, var(--discount-accent), var(--discount-accent-2));
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 16px rgba(0, 200, 83, 0.28);
+  animation: discount-pulse 2.8s ease-in-out infinite;
+  transition: transform var(--transition-fast), box-shadow var(--transition-base);
+}
+
+.btn-discount:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(0, 200, 83, 0.45);
+  animation: none;
+}
+
+.btn-discount:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-discount i {
+  font-size: 0.8em;
+}
+
+/* Uzun etiket geniş ekranda, kısa etiket dar ekranda gösterilir. */
+.btn-discount-label-short {
+  display: none;
+}
+
+@keyframes discount-pulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 14px rgba(0, 200, 83, 0.25);
+  }
+
+  50% {
+    box-shadow: 0 0 22px rgba(0, 200, 83, 0.5);
+  }
+}
+
+@media (max-width: 992px) {
+  .btn-discount-label {
+    display: none;
+  }
+
+  .btn-discount-label-short {
+    display: inline;
+  }
+}
+
+@media (max-width: 576px) {
+  .btn-discount {
+    gap: 5px;
+    padding: 6px 10px;
+    font-size: 0.68rem;
+    box-shadow: none;
+    animation: none;
+  }
+}
+
+/* Çok dar ekranlarda (≤400px) logo ile çakışmaması için yalnızca ikon kalır.
+   Header'daki diğer aksiyonlar da bu genişlikte ikona indiğinden düzen tutarlı
+   olur; renkli olduğu için buton yine header'daki en göze çarpan öğedir. */
+@media (max-width: 400px) {
+  .btn-discount-label-short {
+    display: none;
+  }
+
+  .btn-discount {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+    border-radius: 7px;
+  }
+
+  .btn-discount i {
+    font-size: 0.78rem;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   39.2 SAYFA İSKELETİ
+   Sayfada hero bölümü yoktur; tema tercihi indirimler.js tarafından doğrudan
+   uygulanır (karanlık mod kapalıysa `past-hero` sınıfı eklenir).
+   -------------------------------------------------------------------------- */
+body.discount-page #main-content {
+  min-height: 60vh;
+}
+
+body.discount-page #footer {
+  padding-top: 32px;
+}
+
+/* --------------------------------------------------------------------------
+   39.3 E-POSTA GİRİŞİ
+   -------------------------------------------------------------------------- */
+.discount-verify-card {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 32px 28px;
+  text-align: center;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.discount-verify-label {
+  display: block;
+  margin-bottom: 16px;
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.discount-verify-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.discount-verify-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+}
+
+.discount-verify-btn {
+  flex: 0 0 auto;
+  padding: 12px 24px;
+  font-size: 0.92rem;
+}
+
+.discount-verify-message {
+  margin: 14px auto 0;
+  min-height: 1.4em;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+.discount-verify-message.is-error {
+  color: #ef5350;
+}
+
+@media (max-width: 576px) {
+  .discount-verify-card {
+    padding: 24px 18px;
+  }
+
+  .discount-verify-row {
+    flex-direction: column;
+  }
+
+  .discount-verify-btn {
+    width: 100%;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   39.4 DOĞRULAMA SONUCU (yeşil tik + durum + ad soyad)
+   -------------------------------------------------------------------------- */
+.discount-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 40px 28px;
+  text-align: center;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 200, 83, 0.35);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.discount-result[hidden] {
+  display: none;
+}
+
+.discount-result-check {
+  font-size: 4.5rem;
+  line-height: 1;
+  color: #00c853;
+  animation: discount-check-pop 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes discount-check-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.discount-result-status {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #00c853;
+  letter-spacing: 0.3px;
+}
+
+.discount-result-name {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Doğrulama servisi bağlanana kadar görünen uyarı; entegrasyon sonrası
+   indirimler.js bu bloğu otomatik gizler. */
+.discount-result-pending {
+  margin: 8px auto 0;
+  max-width: 44ch;
+  padding: 10px 14px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #ffb74d;
+  background: rgba(255, 183, 77, 0.1);
+  border: 1px dashed rgba(255, 183, 77, 0.45);
+  border-radius: var(--radius-sm);
+}
+
+.discount-result-pending[hidden] {
+  display: none;
+}
+
+.discount-result-reset {
+  margin-top: 10px;
+  padding: 10px 22px;
+  font-size: 0.88rem;
+}
+
+/* --------------------------------------------------------------------------
+   39.5 ANLAŞMALI KAFE LİSTESİ
+   -------------------------------------------------------------------------- */
+.discount-list {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+
+.discount-group-title {
+  margin: 0 0 20px;
+  padding-bottom: 12px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-align: center;
+  color: var(--glow);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.discount-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+.discount-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  transition: transform var(--transition-base),
+    border-color var(--transition-base),
+    box-shadow var(--transition-base);
+}
+
+.discount-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(0, 200, 83, 0.35);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.discount-card-logo {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.discount-card-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.discount-card-logo i {
+  font-size: 1.6rem;
+  color: var(--glow);
+}
+
+.discount-card-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.discount-card-name {
+  font-family: var(--font-heading);
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.discount-card-name a:hover {
+  color: var(--glow);
+}
+
+.discount-card-caption {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* İndirim oranı: kartın sağ ucunda, listenin taranabilir olmasını sağlayan
+   tek vurgu noktası. */
+.discount-rate {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 78px;
+  padding: 8px 12px;
+  font-family: var(--font-heading);
+  font-size: 1.3rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--discount-ink);
+  text-align: center;
+  background: linear-gradient(135deg, var(--discount-accent), var(--discount-accent-2));
+  border-radius: var(--radius-sm);
+  max-width: 42%;
+}
+
+.discount-rate small {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+/* Serbest metinli oranlar ("%10 (kahvede)") iri puntoda kartın yarısını
+   kaplayıp kurum adını birkaç satıra bölüyordu. Bu varyant küçük puntoyla
+   sarar; rozet hiçbir durumda kartın %42'sinden geniş olamaz. */
+.discount-rate--long {
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.discount-rate--long small {
+  font-size: 0.62rem;
+}
+
+.discount-rate--empty {
+  font-size: 0.86rem;
+  font-weight: 700;
+  background: rgba(0, 200, 83, 0.15);
+  color: var(--discount-accent);
+}
+
+.discount-list-loading,
+.discount-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.discount-empty {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 36px 24px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.discount-empty i {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 2.2rem;
+  color: var(--glow);
+}
+
+.discount-empty-title {
+  margin: 0 auto 6px;
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.discount-empty-detail {
+  margin: 0 auto;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.discount-list-note {
+  max-width: 640px;
+  margin: 40px auto 0;
+  text-align: center;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+@media (max-width: 576px) {
+  .discount-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .discount-card {
+    gap: 12px;
+    padding: 14px 14px;
+  }
+
+  .discount-card-logo {
+    width: 52px;
+    height: 52px;
+  }
+
+  .discount-rate {
+    min-width: 66px;
+    max-width: 38%;
+    font-size: 1.12rem;
+    padding: 7px 9px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   39.6 AÇIK TEMA (past-hero) DOKUNUŞLARI
+   -------------------------------------------------------------------------- */
+body.past-hero .discount-card-logo {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+/* Genel `.form-input` kuralı arka planı lacivere sabitler; açık temada kutunun
+   içi beyaz olduğu için yazı okunamaz hâle geliyordu. Bu yüzden girdi açık
+   temada beyaza çevrilir. (Bülten modalı tersini yapar: orada kutunun kendisi
+   lacivert kaldığı için yazı beyaza zorlanır.) */
+body.past-hero .discount-verify-input {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(15, 23, 42, 0.14);
+}
+
+body.past-hero .discount-verify-input::placeholder {
+  color: #64748b;
+}
+
+body.past-hero .discount-verify-input:hover {
+  border-color: rgba(15, 23, 42, 0.28);
+}
+
+body.past-hero .discount-verify-input:focus {
+  background: #ffffff;
+  border-color: var(--glow);
+}
+
+body.past-hero .discount-result-pending {
+  color: #a1610a;
+  background: rgba(255, 183, 77, 0.16);
+  border-color: rgba(161, 97, 10, 0.4);
+}
+
+body.past-hero .discount-result-check,
+body.past-hero .discount-result-status {
+  color: #00913c;
+}
+
+body.past-hero .discount-rate--empty {
+  color: #00733c;
+  background: rgba(0, 145, 60, 0.12);
+}
+
+/* --------------------------------------------------------------------------
+   39.7 ANA SAYFADAKİ SPONSOR KARTINDA İNDİRİM ROZETİ
+   İndirim kategorisindeki kafeler ana sayfada da oranıyla görünür; böylece
+   iki ekran arasında ayrı bir liste tutulmaz.
+   -------------------------------------------------------------------------- */
+.sponsor-discount-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: var(--discount-ink);
+  background: linear-gradient(135deg, var(--discount-accent), var(--discount-accent-2));
+  border-radius: var(--radius-full);
+}
+
+.sponsor-discount-badge i {
+  font-size: 0.75em;
 }

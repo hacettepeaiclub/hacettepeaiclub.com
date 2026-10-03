@@ -18,15 +18,6 @@
 // app.js ile aynı adres; iki dosya birlikte yüklenmediği için çakışma olmaz.
 const API_URL = 'https://api.hacettepeaiclub.com';
 
-/**
- * Bir sponsor kategorisinin "indirim sponsorları" olup olmadığı.
- *
- * Tek yetkili kaynak admin panelinden işaretlenen `is_discount` alanıdır.
- * Alan yalnızca veritabanına henüz eklenmemişse (göç çalıştırılmamışsa)
- * devreye giren yedek, kategori adında "indirim" arar; böylece sayfa göçten
- * önce de doluyken açılır. Bkz. isDiscountCategory().
- */
-
 // ==================== UTILITIES ====================
 function escapeHTML(str = '') {
     const div = document.createElement('div');
@@ -140,68 +131,117 @@ function initHeaderScroll() {
 
 // ==================== ÜYE DOĞRULAMA ====================
 /**
- * Hacettepe e-posta adresi mi? (ör. ...@hacettepe.edu.tr,
- * ...@ogrenci.hacettepe.edu.tr). Bu yalnızca biçim kontrolüdür; üyelik
- * doğrulaması değildir.
+ * "Beni hatırla" kaydı. Sayfa %99 telefondan kullanılacağı ve kasa önünde
+ * her seferinde e-posta yazmak yavaş olduğu için son doğrulanan adres bu
+ * cihazda saklanır. Saklanan şey yalnızca adres/ad; yetki belirteci değildir —
+ * sayfa açıldığında sunucuya tekrar sorulur, yani üyelikten çıkan biri
+ * eski kayıt yüzünden "aktif üye" görünmez.
  */
-function isHacettepeEmail(email) {
-    return /^[^\s@]+@([a-z0-9-]+\.)*hacettepe\.edu\.tr$/i.test(email);
+const LS_MEMBER_KEY = 'hacettepe_ai_member';
+
+/** Saklanan kayıt bu süreden eskiyse yok sayılır (30 gün). */
+const MEMBER_MEMORY_MS = 30 * 24 * 60 * 60 * 1000;
+
+function readRememberedMember() {
+    try {
+        const stored = JSON.parse(localStorage.getItem(LS_MEMBER_KEY) || 'null');
+        if (!stored || !stored.email) return null;
+        if (stored.savedAt && Date.now() - stored.savedAt > MEMBER_MEMORY_MS) {
+            localStorage.removeItem(LS_MEMBER_KEY);
+            return null;
+        }
+        return stored;
+    } catch (err) {
+        return null;
+    }
+}
+
+function rememberMember(email) {
+    try {
+        localStorage.setItem(LS_MEMBER_KEY, JSON.stringify({ email, savedAt: Date.now() }));
+    } catch (err) {
+        /* Gizli sekmede localStorage yazılamaz; hatırlamadan devam edilir. */
+    }
+}
+
+function forgetMember() {
+    try {
+        localStorage.removeItem(LS_MEMBER_KEY);
+    } catch (err) { /* yok sayılır */ }
 }
 
 /**
- * ---------------------------------------------------------------------------
- * TODO (ayrı iş): Gerçek üyelik doğrulaması.
- * ---------------------------------------------------------------------------
- * Burada backend'e bir istek atılacak (ör. POST /membership/verify) ve dönen
- * yanıttan üyenin durumu ile ad-soyadı okunacak:
+ * Sunucuya üyelik sorar.
  *
- *   const res = await fetch(`${API_URL}/membership/verify`, {
- *       method: 'POST',
- *       headers: { 'Content-Type': 'application/json' },
- *       body: JSON.stringify({ email }),
- *   });
- *   const data = await res.json();   // { is_active_member, full_name }
+ * Girdi hem tam e-posta hem yalın kullanıcı adı olabilir; normalleştirmeyi
+ * sunucu yapar (büyük/küçük harf, boşluk, eksik alan adı).
  *
- * Şu an servis olmadığı için yalnızca ekran akışı kurulmuştur; hiçbir üyelik
- * bilgisi doğrulanmaz. Bu fonksiyon gerçek isteği yapacak şekilde
- * değiştirildiğinde sayfanın geri kalanı olduğu gibi çalışır.
+ * @return {Promise<{is_member: boolean, full_name: string|null}>}
  */
 async function verifyMembership(email) {
-    return {
-        verified: false,           // Doğrulama servisi henüz bağlı değil
-        status: 'Aktif Üyemiz',
-        fullName: 'Ad Soyad',
-        email,
-    };
+    const res = await fetch(`${API_URL}/members/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+    });
+
+    let data = null;
+    try {
+        data = await res.json();
+    } catch (err) { /* gövde boş ya da JSON değil */ }
+
+    if (!res.ok) {
+        if (res.status === 429) {
+            throw new Error('Çok fazla deneme yapıldı. Lütfen bir dakika sonra tekrar deneyin.');
+        }
+        // Sunucunun hata biçimi: { message } (main.py'deki handler), bazı
+        // durumlarda FastAPI'nin varsayılanı: { detail }.
+        throw new Error(data?.message || data?.detail || 'Doğrulama yapılamadı. Lütfen tekrar deneyin.');
+    }
+
+    return data || { is_member: false, full_name: null };
 }
 
 class MembershipVerifier {
     constructor() {
-        this.card = document.getElementById('discount-verify-card');
+        this.form = document.getElementById('discount-verify-form');
         this.input = document.getElementById('discount-email');
         this.button = document.getElementById('discount-verify-btn');
         this.message = document.getElementById('discount-verify-message');
+        this.rememberBox = document.getElementById('discount-remember');
+
         this.result = document.getElementById('discount-result');
+        this.resultIcon = document.getElementById('discount-result-icon');
         this.resultStatus = document.getElementById('discount-result-status');
         this.resultName = document.getElementById('discount-result-name');
-        this.resultPending = document.getElementById('discount-result-pending');
+        this.resultHint = document.getElementById('discount-result-hint');
         this.resetBtn = document.getElementById('discount-result-reset');
 
-        if (!this.input || !this.button) return;
+        if (!this.form || !this.input) return;
 
-        this.button.addEventListener('click', () => this.submit());
-        this.input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') this.submit();
+        this.form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.submit();
         });
         this.input.addEventListener('input', () => this.clearMessage());
         this.resetBtn?.addEventListener('click', () => this.reset());
+
+        this.restore();
+    }
+
+    /** Hatırlanan adres varsa kutuyu doldurur ve sessizce yeniden doğrular. */
+    restore() {
+        const stored = readRememberedMember();
+        if (!stored) return;
+
+        this.input.value = stored.email;
+        this.submit({ silent: true });
     }
 
     clearMessage() {
-        if (this.message) {
-            this.message.textContent = '';
-            this.message.classList.remove('is-error');
-        }
+        if (!this.message) return;
+        this.message.textContent = '';
+        this.message.classList.remove('is-error');
     }
 
     showError(text) {
@@ -210,17 +250,16 @@ class MembershipVerifier {
         this.message.classList.add('is-error');
     }
 
-    async submit() {
+    /**
+     * @param {object} options
+     * @param {boolean} options.silent Hatırlanan adresle otomatik deneme;
+     *        başarısız olursa kullanıcıya hata gösterilmez, form açık kalır.
+     */
+    async submit({ silent = false } = {}) {
         const email = this.input.value.trim();
 
         if (!email) {
             this.showError('Lütfen e-posta adresinizi girin.');
-            this.input.focus();
-            return;
-        }
-
-        if (!isHacettepeEmail(email)) {
-            this.showError('Lütfen Hacettepe uzantılı bir e-posta adresi girin (örn. ornek@hacettepe.edu.tr).');
             this.input.focus();
             return;
         }
@@ -232,27 +271,62 @@ class MembershipVerifier {
 
         try {
             const result = await verifyMembership(email);
+
+            if (result.is_member && this.rememberBox?.checked !== false) {
+                // Kullanıcının yazdığı hâli değil, sunucunun döndürdüğü
+                // normalleştirilmiş kullanıcı adını sakla; böylece sonraki
+                // ziyarette kutuda "ABDULKADIR..." gibi bir şey görünmez.
+                rememberMember(result.nickname
+                    ? `${result.nickname}@hacettepe.edu.tr`
+                    : email);
+            } else if (!result.is_member) {
+                forgetMember();
+            }
+
             this.showResult(result);
+        } catch (error) {
+            forgetMember();
+            if (!silent) this.showError(error.message);
         } finally {
             this.button.disabled = false;
             this.button.innerHTML = originalLabel;
         }
     }
 
-    showResult({ verified, status, fullName }) {
-        if (this.resultStatus) this.resultStatus.textContent = status;
-        if (this.resultName) this.resultName.textContent = fullName;
-        // Doğrulama servisi bağlandığında bu uyarı kendiliğinden kaybolur.
-        if (this.resultPending) this.resultPending.hidden = Boolean(verified);
+    showResult({ is_member: isMember, full_name: fullName }) {
+        this.result.classList.toggle('is-not-member', !isMember);
 
-        this.card?.setAttribute('hidden', '');
-        this.result?.removeAttribute('hidden');
-        this.result?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (this.resultIcon) {
+            this.resultIcon.className = isMember
+                ? 'fa-solid fa-circle-check'
+                : 'fa-solid fa-circle-xmark';
+        }
+
+        if (this.resultStatus) {
+            this.resultStatus.textContent = isMember ? 'Aktif Üyemiz' : 'Üyelik Bulunamadı';
+        }
+
+        if (this.resultName) {
+            this.resultName.textContent = isMember ? (fullName || '') : '';
+            this.resultName.hidden = !isMember;
+        }
+
+        if (this.resultHint) {
+            this.resultHint.hidden = isMember;
+            this.resultHint.textContent = isMember
+                ? ''
+                : 'Bu e-posta adresi güncel üye listemizde görünmüyor. '
+                  + 'Yeni üye olduysanız listenin güncellenmesini bekleyin ya da bizimle iletişime geçin.';
+        }
+
+        this.form.setAttribute('hidden', '');
+        this.result.removeAttribute('hidden');
     }
 
     reset() {
-        this.result?.setAttribute('hidden', '');
-        this.card?.removeAttribute('hidden');
+        forgetMember();
+        this.result.setAttribute('hidden', '');
+        this.form.removeAttribute('hidden');
         this.input.value = '';
         this.clearMessage();
         this.input.focus();
@@ -279,7 +353,7 @@ async function loadDiscounts() {
     if (discountCategories.length === 0) {
         container.innerHTML = emptyDiscountHtml(
             'Henüz bir indirim anlaşması eklenmemiş.',
-            'Ana sayfadaki iş birlikleri bölümünde "indirim" kategorisi oluşturulduğunda kafeler burada listelenir.'
+            'Yeni anlaşmalar eklendikçe burada görünecek.'
         );
         return;
     }

@@ -105,6 +105,29 @@ class Stakeholder(SQLModel, table=True):
     order_index: int = Field(default=0)
     is_active: bool = Field(default=True)
 
+class Member(SQLModel, table=True):
+    """Topluluk üye listesi; indirimler.html sayfasındaki üyelik doğrulaması
+    bu tabloya bakar.
+
+    Kaynak, topluluk yönetim sisteminden indirilen Excel dosyasıdır ve admin
+    panelindeki "Üyeleri Güncelle" ekranından yüklenir. `nickname`, Excel'deki
+    "Adı Soyadı" hücresinde adın ardından gelen kullanıcı adıdır; aynı zamanda
+    Hacettepe e-postasının @ işaretinden önceki kısmıdır.
+
+    Telefon numarası bilinçli olarak SAKLANMAZ: bu tablonun tek işi "bu
+    kullanıcı adı aktif üye mi, adı ne" sorusunu yanıtlamaktır.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nickname: str = Field(unique=True, index=True)
+    full_name: str
+    # "FAKÜLTE / PROGRAM" biçiminde sadeleştirilmiş bilgi; yalnızca admin
+    # panelinde gösterilir, doğrulama yanıtında yer almaz.
+    faculty: Optional[str] = Field(default=None)
+    # Son yüklenen listede yer almayan üyeler silinmez, pasife alınır. Böylece
+    # yanlış dosya yüklenirse doğru dosyayı tekrar yükleyip geri alınabilir.
+    is_active: bool = Field(default=True)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
 class SiteSetting(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     key: str = Field(unique=True, index=True)

@@ -1,5 +1,5 @@
 from routers import (events, projects, sponsors, sponsor_categories, stakeholders, settings, board_members,
-                     announcements, auth, users, uploads, newsletter)
+                     announcements, auth, users, uploads, newsletter, members)
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from sqlmodel import SQLModel
@@ -121,6 +121,7 @@ app.include_router(users.router)
 
 app.include_router(uploads.router)  # <-- RESİM YÜKLEME ROTASINI BURAYA EKLEDİK
 app.include_router(newsletter.router)
+app.include_router(members.router)  # Üye listesi + indirim sayfası doğrulaması
 
 @app.get("/")
 async def root():

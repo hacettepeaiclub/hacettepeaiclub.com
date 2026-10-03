@@ -4334,10 +4334,21 @@ table {
    ========================================================================== */
 :root {
   /* İndirim vurgusu: sitenin mavi/mor paletinden bilinçli olarak ayrışır ki
-     header'daki çağrı butonu diğer aksiyonların arasında kaybolmasın. */
-  --discount-accent: #00c853;
-  --discount-accent-2: #00acc1;
-  --discount-ink: #04231a;
+     header'daki çağrı butonu diğer aksiyonların arasında kaybolmasın.
+     Gradyan değil, tek ve düz koyu yeşil; beyaz yazıyla kontrast 5.0:1
+     (WCAG AA). */
+  --discount-green: #15803d;
+  --discount-green-hover: #116430;
+  /* Yüzey rengi (--discount-green) üzerine beyaz yazı her iki temada da
+     okunur. Ancak YAZI olarak kullanıldığında koyu yeşil, koyu zeminde
+     yalnızca ~3.5:1 kontrast veriyor. Bu yüzden "koyu zeminde yeşil yazı"
+     için ayrı bir token var; açık temada aşağıda koyu yeşile çevrilir. */
+  --discount-green-text: #4ade80;
+}
+
+/* Açık temada sayfa zemini beyaz olduğu için yeşil yazı koyu tona döner. */
+body.past-hero {
+  --discount-green-text: #15803d;
 }
 
 /* --------------------------------------------------------------------------
@@ -4357,18 +4368,15 @@ table {
   font-size: 0.85rem;
   line-height: 1;
   white-space: nowrap;
-  color: var(--discount-ink);
-  background: linear-gradient(135deg, var(--discount-accent), var(--discount-accent-2));
+  color: #ffffff;
+  background: var(--discount-green);
   border-radius: var(--radius-full);
-  box-shadow: 0 0 16px rgba(0, 200, 83, 0.28);
-  animation: discount-pulse 2.8s ease-in-out infinite;
-  transition: transform var(--transition-fast), box-shadow var(--transition-base);
+  transition: transform var(--transition-fast), background var(--transition-base);
 }
 
 .btn-discount:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 24px rgba(0, 200, 83, 0.45);
-  animation: none;
+  background: var(--discount-green-hover);
 }
 
 .btn-discount:active {
@@ -4382,18 +4390,6 @@ table {
 /* Uzun etiket geniş ekranda, kısa etiket dar ekranda gösterilir. */
 .btn-discount-label-short {
   display: none;
-}
-
-@keyframes discount-pulse {
-
-  0%,
-  100% {
-    box-shadow: 0 0 14px rgba(0, 200, 83, 0.25);
-  }
-
-  50% {
-    box-shadow: 0 0 22px rgba(0, 200, 83, 0.5);
-  }
 }
 
 @media (max-width: 992px) {
@@ -4411,8 +4407,6 @@ table {
     gap: 5px;
     padding: 6px 10px;
     font-size: 0.68rem;
-    box-shadow: none;
-    animation: none;
   }
 }
 
@@ -4505,6 +4499,30 @@ body.discount-page #footer {
   color: #ef5350;
 }
 
+/* "Bu cihazda beni hatırla" — kasa önünde her seferinde adres yazmamak için.
+   Dokunma hedefi telefonda rahat tutulsun diye satır yüksekliği geniş. */
+.discount-remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  /* min-height: parmakla rahat basılabilmesi için 44px'in altına düşmez. */
+  min-height: 44px;
+  padding: 10px 4px;
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.discount-remember input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  accent-color: var(--discount-green);
+  cursor: pointer;
+}
+
 @media (max-width: 576px) {
   .discount-verify-card {
     padding: 24px 18px;
@@ -4534,7 +4552,7 @@ body.discount-page #footer {
   background: var(--glass-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(0, 200, 83, 0.35);
+  border: 1px solid rgba(21, 128, 61, 0.35);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
 }
@@ -4546,7 +4564,7 @@ body.discount-page #footer {
 .discount-result-check {
   font-size: 4.5rem;
   line-height: 1;
-  color: #00c853;
+  color: var(--discount-green-text);
   animation: discount-check-pop 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -4567,7 +4585,7 @@ body.discount-page #footer {
   font-family: var(--font-heading);
   font-size: 1.35rem;
   font-weight: 700;
-  color: #00c853;
+  color: var(--discount-green-text);
   letter-spacing: 0.3px;
 }
 
@@ -4578,28 +4596,33 @@ body.discount-page #footer {
   color: var(--text-primary);
 }
 
-/* Doğrulama servisi bağlanana kadar görünen uyarı; entegrasyon sonrası
-   indirimler.js bu bloğu otomatik gizler. */
-.discount-result-pending {
-  margin: 8px auto 0;
-  max-width: 44ch;
-  padding: 10px 14px;
-  font-size: 0.82rem;
-  line-height: 1.5;
-  color: #ffb74d;
-  background: rgba(255, 183, 77, 0.1);
-  border: 1px dashed rgba(255, 183, 77, 0.45);
-  border-radius: var(--radius-sm);
-}
-
-.discount-result-pending[hidden] {
-  display: none;
-}
-
 .discount-result-reset {
   margin-top: 10px;
   padding: 10px 22px;
   font-size: 0.88rem;
+}
+
+.discount-result-name[hidden],
+.discount-result-hint[hidden] {
+  display: none;
+}
+
+/* Üye bulunamadığında aynı kutu uyarı rengine geçer. */
+.discount-result.is-not-member {
+  border-color: rgba(239, 83, 80, 0.4);
+}
+
+.discount-result.is-not-member .discount-result-check,
+.discount-result.is-not-member .discount-result-status {
+  color: #ef5350;
+}
+
+.discount-result-hint {
+  margin: 4px auto 0;
+  max-width: 44ch;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
 }
 
 /* --------------------------------------------------------------------------
@@ -4645,7 +4668,7 @@ body.discount-page #footer {
 
 .discount-card:hover {
   transform: translateY(-3px);
-  border-color: rgba(0, 200, 83, 0.35);
+  border-color: rgba(21, 128, 61, 0.4);
   box-shadow: var(--shadow-card-hover);
 }
 
@@ -4712,9 +4735,9 @@ body.discount-page #footer {
   font-size: 1.3rem;
   font-weight: 800;
   line-height: 1.1;
-  color: var(--discount-ink);
+  color: #ffffff;
   text-align: center;
-  background: linear-gradient(135deg, var(--discount-accent), var(--discount-accent-2));
+  background: var(--discount-green);
   border-radius: var(--radius-sm);
   max-width: 42%;
 }
@@ -4745,8 +4768,8 @@ body.discount-page #footer {
 .discount-rate--empty {
   font-size: 0.86rem;
   font-weight: 700;
-  background: rgba(0, 200, 83, 0.15);
-  color: var(--discount-accent);
+  background: rgba(21, 128, 61, 0.14);
+  color: var(--discount-green-text);
 }
 
 .discount-list-loading,
@@ -4847,22 +4870,6 @@ body.past-hero .discount-verify-input:focus {
   border-color: var(--glow);
 }
 
-body.past-hero .discount-result-pending {
-  color: #a1610a;
-  background: rgba(255, 183, 77, 0.16);
-  border-color: rgba(161, 97, 10, 0.4);
-}
-
-body.past-hero .discount-result-check,
-body.past-hero .discount-result-status {
-  color: #00913c;
-}
-
-body.past-hero .discount-rate--empty {
-  color: #00733c;
-  background: rgba(0, 145, 60, 0.12);
-}
-
 /* --------------------------------------------------------------------------
    39.7 ANA SAYFADAKİ SPONSOR KARTINDA İNDİRİM ROZETİ
    İndirim kategorisindeki kafeler ana sayfada da oranıyla görünür; böylece
@@ -4877,11 +4884,114 @@ body.past-hero .discount-rate--empty {
   font-size: 0.8rem;
   font-weight: 800;
   letter-spacing: 0.3px;
-  color: var(--discount-ink);
-  background: linear-gradient(135deg, var(--discount-accent), var(--discount-accent-2));
+  color: #ffffff;
+  background: var(--discount-green);
   border-radius: var(--radius-full);
 }
 
 .sponsor-discount-badge i {
   font-size: 0.75em;
+}
+
+/* --------------------------------------------------------------------------
+   39.8 ADMIN — ÜYELERİ GÜNCELLE EKRANI
+   -------------------------------------------------------------------------- */
+.member-import-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 14px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: center;
+  background: rgba(79, 195, 247, 0.08);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.member-import-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.member-import-stat strong {
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  color: var(--glow);
+  overflow-wrap: anywhere;
+}
+
+.member-import-stat span {
+  font-size: 0.75rem;
+  letter-spacing: 0.3px;
+}
+
+/* Son güncelleme tarihi iki kolona yayılır; tek kolonda sığmıyor. */
+.member-import-stat--wide {
+  grid-column: 1 / -1;
+}
+
+.member-import-stat--wide strong {
+  font-size: 0.92rem;
+}
+
+.member-import-warning {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: #ffb74d;
+  background: rgba(255, 183, 77, 0.1);
+  border: 1px dashed rgba(255, 183, 77, 0.45);
+  border-radius: var(--radius-sm);
+}
+
+.member-import-success,
+.member-import-error {
+  margin: 16px 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* Admin modalı açık temada da lacivert kalıyor (bkz. body.past-hero
+   .admin-modal-form kuralı), bu yüzden burada tema token'ı değil sabit
+   açık yeşil kullanılır. */
+.member-import-success {
+  color: #4ade80;
+}
+
+.member-import-error {
+  color: #ef5350;
+}
+
+.member-import-report {
+  margin: 10px 0 0;
+  padding: 12px 16px;
+  font-size: 0.85rem;
+  line-height: 1.9;
+  color: var(--text-secondary);
+  background: rgba(21, 128, 61, 0.1);
+  border-radius: var(--radius-sm);
+}
+
+.member-import-report strong {
+  color: var(--text-primary);
+}
+
+body.past-hero .member-import-warning {
+  color: #a1610a;
+  background: rgba(255, 183, 77, 0.16);
+  border-color: rgba(161, 97, 10, 0.4);
+}
+
+/* Admin modalı koyu zeminli kaldığı için açık temada da açık yazı gerekir. */
+body.past-hero .member-import-stats,
+body.past-hero .member-import-report {
+  color: #cbd5e1;
+}
+
+body.past-hero .member-import-report strong {
+  color: #ffffff;
 }

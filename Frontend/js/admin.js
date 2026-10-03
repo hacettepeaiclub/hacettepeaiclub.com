@@ -398,6 +398,7 @@ function injectToolbarButtons() {
   };
 
   addButton('admin-show-newsletter-btn', 'fa-list', 'Aboneler', openNewsletterListModal);
+  addButton('admin-members-btn', 'fa-id-card', 'Üyeleri Güncelle', openMemberImportModal);
 
   // Yalnızca kurucu admin diğer adminleri yönetebilir
   if (getCurrentUserEmail() === OWNER_EMAIL) {
@@ -1609,7 +1610,6 @@ function openSponsorForm(existing = null) {
         label: 'Üye İndirimi (opsiyonel)',
         placeholder: 'Örn: %15',
         hint: 'Yalnızca "İndirim kategorisi" işaretli bir kategori seçtiyseniz kullanılır. '
-          + 'Buraya yazdığınız oran hem bu kartta hem de Üye İndirimleri sayfasında görünür. '
           + 'Sayı yazarsanız (örn. 15) otomatik olarak "%15" gösterilir.',
       },
     ],
@@ -1656,8 +1656,7 @@ function openSponsorCategoryForm(existing = null) {
         label: 'Bu bir indirim kategorisidir (anlaşmalı kafeler vb.)',
         type: 'checkbox',
         hint: 'İşaretlerseniz bu kategorideki kurumlar, oranlarıyla birlikte '
-          + '"Üye İndirimleri" sayfasında da listelenir. İki ekran aynı kayıtları '
-          + 'kullandığı için ayrıca bir liste tutmanız gerekmez.',
+          + '"Üye İndirimleri" sayfasında da listelenir.',
       },
     ],
     onSubmit: async (data) => {
@@ -1962,6 +1961,200 @@ function openNewsletterListModal() {
         <div style="font-size: 0.8rem; color: var(--text-muted);">Kayıt: ${escapeHTML(date)}</div>
       `;
     },
+  });
+}
+
+// ===========================================================================
+// ÜYE LİSTESİ (indirimler.html sayfasındaki doğrulama bu listeye bakar)
+// ===========================================================================
+/** Sunucunun kabul ettiği uzantılar (routers/members.py ile aynı olmalı). */
+const ALLOWED_MEMBER_EXTENSIONS = ['.xlsx', '.xlsm'];
+
+/** Sunucudaki sınırla aynı: 10 MB */
+const MAX_MEMBER_FILE_MB = 10;
+
+/**
+ * "Üyeleri Güncelle" ekranı: topluluk sisteminden indirilen Excel dosyasını
+ * yükler ve üye listesini TAM senkronize eder.
+ *
+ * Dosyada olmayan üyeler silinmez, pasife alınır; bu yüzden yanlış dosya
+ * yüklenirse doğru dosyayı tekrar yüklemek eski hâle döndürür.
+ */
+function openMemberImportModal() {
+  document.querySelectorAll('.admin-modal-form').forEach(f => f.remove());
+
+  const overlay = document.createElement('div');
+  overlay.className = 'admin-modal-form';
+  overlay.innerHTML = `
+    <div class="admin-inline-form" style="max-width: 560px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;">
+        <h4 style="margin: 0;"><i class="fa-solid fa-id-card"></i> Üyeleri Güncelle</h4>
+        <button type="button" class="admin-btn admin-btn--secondary" data-action="close" style="padding: 5px 12px;">✕</button>
+      </div>
+
+      <div class="member-import-stats" data-role="stats">
+        <i class="fa-solid fa-spinner fa-spin"></i> Mevcut liste okunuyor...
+      </div>
+
+      <p class="admin-form-hint" style="margin: 14px 0 10px;">
+        Topluluk yönetim sisteminden indirdiğiniz üye listesini (.xlsx) değiştirmeden yükleyin.
+        Ad-soyaddan sonraki kullanıcı adı, Hacettepe e-postasının @ işaretinden önceki kısmı
+        olarak kullanılır.
+      </p>
+
+      <div class="admin-upload-box">
+        <label style="color: var(--glow);">Excel dosyası (.xlsx)
+          <input type="file" data-role="file" accept=".xlsx,.xlsm" />
+        </label>
+        <div class="admin-form-hint" data-role="filename" style="margin-top: 6px;"></div>
+      </div>
+
+      <p class="member-import-warning">
+        <i class="fa-solid fa-circle-info"></i>
+        Liste tamamen bu dosyaya göre eşitlenir: dosyada olmayan üyeler pasife alınır.
+        Silinmedikleri için yanlış dosya yüklerseniz doğru dosyayı tekrar yükleyip geri alabilirsiniz.
+      </p>
+
+      <div data-role="report"></div>
+
+      <div class="admin-form-actions">
+        <button type="button" class="admin-btn" data-action="upload">
+          <i class="fa-solid fa-upload"></i> Yükle ve Eşitle
+        </button>
+        <button type="button" class="admin-btn admin-btn--secondary" data-action="close">Kapat</button>
+      </div>
+    </div>
+  `;
+
+  const close = () => overlay.remove();
+  overlay.querySelectorAll('[data-action="close"]').forEach(btn => btn.addEventListener('click', close));
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+  document.body.appendChild(overlay);
+
+  const statsBox = overlay.querySelector('[data-role="stats"]');
+  const fileInput = overlay.querySelector('[data-role="file"]');
+  const fileLabel = overlay.querySelector('[data-role="filename"]');
+  const report = overlay.querySelector('[data-role="report"]');
+  const uploadBtn = overlay.querySelector('[data-action="upload"]');
+
+  const renderStats = (stats) => {
+    if (!stats) {
+      statsBox.innerHTML = '<span style="color: #ef5350;">Mevcut liste okunamadı. Yetkiniz olmayabilir.</span>';
+      return;
+    }
+    const updated = stats.last_updated
+      ? new Date(stats.last_updated).toLocaleString('tr-TR', {
+          day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        })
+      : 'hiç yüklenmedi';
+    statsBox.innerHTML = `
+      <div class="member-import-stat"><strong>${stats.active}</strong><span>aktif üye</span></div>
+      <div class="member-import-stat"><strong>${stats.total - stats.active}</strong><span>pasif kayıt</span></div>
+      <div class="member-import-stat member-import-stat--wide"><strong>${escapeHTML(updated)}</strong><span>son güncelleme</span></div>
+    `;
+  };
+
+  const loadStats = async () => {
+    try {
+      const res = await fetch(`${API_URL}/members/stats`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error('stats');
+      renderStats(await res.json());
+    } catch (err) {
+      renderStats(null);
+    }
+  };
+
+  loadStats();
+
+  fileInput.addEventListener('change', () => {
+    report.innerHTML = '';
+    const file = fileInput.files?.[0];
+    if (!file) {
+      fileLabel.textContent = '';
+      return;
+    }
+    fileLabel.textContent = `${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
+  });
+
+  uploadBtn.addEventListener('click', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) {
+      alert('Lütfen önce bir Excel dosyası seçin.');
+      return;
+    }
+
+    const extension = file.name.includes('.')
+      ? `.${file.name.split('.').pop().toLowerCase()}`
+      : '';
+    if (!ALLOWED_MEMBER_EXTENSIONS.includes(extension)) {
+      alert(`Geçersiz dosya formatı (${extension || 'uzantısız'}).\n`
+        + `İzin verilenler: ${ALLOWED_MEMBER_EXTENSIONS.join(', ')}`);
+      return;
+    }
+    if (file.size > MAX_MEMBER_FILE_MB * 1024 * 1024) {
+      alert(`Dosya çok büyük (${(file.size / 1024 / 1024).toFixed(1)} MB). `
+        + `En fazla ${MAX_MEMBER_FILE_MB} MB yükleyebilirsiniz.`);
+      return;
+    }
+
+    if (!confirm('Üye listesi bu dosyaya göre tamamen eşitlenecek.\n'
+      + 'Dosyada olmayan üyeler pasife alınacak. Devam edilsin mi?')) {
+      return;
+    }
+
+    uploadBtn.disabled = true;
+    const originalLabel = uploadBtn.innerHTML;
+    uploadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Yükleniyor...';
+    report.innerHTML = '';
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(`${API_URL}/members/import`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: formData,
+      });
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (err) { /* gövde JSON değil */ }
+
+      if (!res.ok) {
+        const detail = data?.message || data?.detail || 'Dosya yüklenemedi.';
+        report.innerHTML = `<p class="member-import-error"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHTML(detail)}</p>`;
+        return;
+      }
+
+      const skipped = (data.skipped_no_nickname || 0) + (data.skipped_not_approved || 0);
+      report.innerHTML = `
+        <p class="member-import-success"><i class="fa-solid fa-circle-check"></i> Üye listesi güncellendi.</p>
+        <ul class="member-import-report">
+          <li><strong>${data.added}</strong> yeni üye eklendi</li>
+          <li><strong>${data.updated}</strong> kayıt güncellendi</li>
+          <li><strong>${data.deactivated}</strong> üye pasife alındı (dosyada yoktu)</li>
+          <li><strong>${data.active_total}</strong> aktif üye var</li>
+          ${skipped ? `<li><strong>${skipped}</strong> satır atlandı (onaylı değil ya da kullanıcı adı okunamadı)</li>` : ''}
+          ${data.duplicates ? `<li><strong>${data.duplicates}</strong> çift kayıt tek üyeye indirildi</li>` : ''}
+        </ul>
+      `;
+
+      fileInput.value = '';
+      fileLabel.textContent = '';
+      await loadStats();
+    } catch (err) {
+      report.innerHTML = '<p class="member-import-error"><i class="fa-solid fa-circle-exclamation"></i> '
+        + 'Sunucuya bağlanılamadı. Lütfen daha sonra tekrar deneyin.</p>';
+    } finally {
+      uploadBtn.disabled = false;
+      uploadBtn.innerHTML = originalLabel;
+    }
   });
 }
 

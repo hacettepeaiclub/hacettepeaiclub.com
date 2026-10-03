@@ -68,37 +68,43 @@
                     Üyeliğinizi doğrulamak için Hacettepe e-posta adresinizi girin.
                 </p>
 
-                <!-- E-posta girişi -->
-                <div class="discount-verify-card" id="discount-verify-card">
+                <!-- E-posta girişi.
+                     Gerçek bir <form> + autocomplete="email": tarayıcı adresi
+                     kaydetmeyi önerir ve sonraki ziyaretlerde doldurur.
+                     autocapitalize/autocorrect kapalı, çünkü telefon klavyesi
+                     adresin ilk harfini büyütüp düzeltmeye çalışıyor. -->
+                <form class="discount-verify-card" id="discount-verify-form" method="post" action="#"
+                    autocomplete="on" novalidate>
                     <label class="discount-verify-label" for="discount-email">
                         Hacettepe e-posta adresinizi girin
                     </label>
                     <div class="discount-verify-row">
-                        <input type="email" id="discount-email" class="form-input discount-verify-input"
-                            placeholder="ornek@hacettepe.edu.tr" autocomplete="email" spellcheck="false"
-                            inputmode="email">
-                        <button type="button" id="discount-verify-btn" class="btn-primary discount-verify-btn">
+                        <input type="email" id="discount-email" name="email"
+                            class="form-input discount-verify-input" placeholder="ornek@hacettepe.edu.tr"
+                            autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false"
+                            inputmode="email" enterkeyhint="go" required>
+                        <button type="submit" id="discount-verify-btn" class="btn-primary discount-verify-btn">
                             <i class="fa-solid fa-id-card"></i> Üyeliğimi Doğrula
                         </button>
                     </div>
                     <p class="discount-verify-message" id="discount-verify-message" role="status" aria-live="polite">
                     </p>
-                </div>
+                    <label class="discount-remember" for="discount-remember">
+                        <input type="checkbox" id="discount-remember" name="remember" checked>
+                        <span>Bu cihazda beni hatırla</span>
+                    </label>
+                </form>
 
-                <!-- Doğrulama sonucu: yeşil tik + durum + ad soyad -->
+                <!-- Doğrulama sonucu: yeşil tik + durum + ad soyad.
+                     Üye bulunamazsa aynı kutu `is-not-member` sınıfıyla
+                     kırmızı/uyarı hâline geçer. -->
                 <div class="discount-result" id="discount-result" hidden>
                     <div class="discount-result-check" aria-hidden="true">
-                        <i class="fa-solid fa-circle-check"></i>
+                        <i class="fa-solid fa-circle-check" id="discount-result-icon"></i>
                     </div>
                     <p class="discount-result-status" id="discount-result-status">Aktif Üyemiz</p>
-                    <p class="discount-result-name" id="discount-result-name">Ad Soyad</p>
-
-                    <!-- Gerçek doğrulama servisi bağlanana kadar görünen uyarı.
-                         Backend entegrasyonu tamamlandığında bu blok silinecek. -->
-                    <p class="discount-result-pending" id="discount-result-pending">
-                        <i class="fa-solid fa-triangle-exclamation"></i>
-                        Üyelik doğrulama sistemi henüz devrede değil; bu ekran yalnızca tasarım önizlemesidir.
-                    </p>
+                    <p class="discount-result-name" id="discount-result-name"></p>
+                    <p class="discount-result-hint" id="discount-result-hint" hidden></p>
 
                     <button type="button" class="btn-secondary discount-result-reset" id="discount-result-reset">
                         <i class="fa-solid fa-rotate-left"></i> Başka bir e-posta dene
@@ -111,9 +117,6 @@
         <section class="section section-alt" id="anlasmali-kafeler">
             <div class="container">
                 <h2 class="section-title">Anlaşmalı Kafeler ve İndirim Oranları</h2>
-                <p class="section-subtitle">
-                    Bu liste ana sayfadaki iş birlikleri bölümüyle otomatik olarak senkronizedir.
-                </p>
 
                 <!-- JS ile API'den gelen indirim sponsorları buraya basılır -->
                 <div class="discount-list" id="discount-list">

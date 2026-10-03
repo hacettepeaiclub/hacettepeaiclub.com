@@ -79,7 +79,26 @@ pytest
 | İş Birlikleri | `/sponsors`, `/sponsor-categories` | `is_discount` işaretli bir kategorideki kayıtlar, `discount` oranlarıyla `indirimler.html` sayfasında da listelenir |
 | AI FEST Paydaşları | `/stakeholders` | |
 | E-Bülten | `/newsletter` | |
+| Üye Listesi | `/members` | `POST /members/verify` herkese açıktır (dakikada 30 istek) ve yalnızca "aktif üye mi + ad soyad" döner; listeleme ve Excel yükleme JWT ister |
 | Kimlik Doğrulama | `/auth`, `/users` | |
 | Görsel Yükleme | `/uploads/image` | |
 
 `GET` istekleri herkese açıktır; `POST`, `PUT` ve `DELETE` için JWT gerekir.
+Tek istisna `POST /members/verify`: indirim sayfasındaki üyelik sorgusu olduğu
+için herkese açıktır, ancak hız sınırı vardır ve liste dökümüne izin vermez.
+
+## Üye listesi (indirim sayfası)
+
+Admin panelindeki **Üyeleri Güncelle** ekranından, topluluk yönetim sisteminden
+indirilen Excel (.xlsx) dosyası yüklenir. "Adı Soyadı" hücresinde addan sonra
+gelen kullanıcı adı, Hacettepe e-postasının `@` işaretinden önceki kısmı olarak
+kullanılır:
+
+```
+ABDULKADİR CEZLAN        abdulkadircezlan25
+                         └─ abdulkadircezlan25@hacettepe.edu.tr ile doğrulanır
+```
+
+Yükleme listeyi **tam senkronize** eder: dosyada olmayan üyeler silinmez,
+`is_active = false` yapılır. Bu yüzden yanlış dosya yüklenirse doğru dosyayı
+tekrar yüklemek eski hâle döndürür. Telefon numarası sütunu hiç okunmaz.

@@ -125,3 +125,44 @@ def test_nickname_from_email_normalisation():
     for bad in ["birisi@gmail.com", "", "@hacettepe.edu.tr", "x@hacettepe.edu.tr.evil.com"]:
         with pytest.raises(HTTPException):
             nickname_from_email(bad)
+
+
+# 10. TEST: AI FEST'26 rotaları kayıtlı; yoklama dışındakiler yetki istiyor
+@pytest.mark.asyncio
+async def test_aifest_routes_require_auth(async_client: AsyncClient):
+    paths = (await async_client.get("/openapi.json")).json()["paths"]
+    for path in ["/aifest/checkin", "/aifest/sessions", "/aifest/participants/import",
+                 "/aifest/raffle/{session_id}", "/aifest/export"]:
+        assert path in paths
+
+    for path in ["/aifest/stats", "/aifest/sessions", "/aifest/raffle/d1-s1", "/aifest/export"]:
+        assert (await async_client.get(path)).status_code == 401
+
+
+# 11. TEST: Katılımcı Excel'i — başlık satırı aranır, numaralar normalleşir, TC düz metin tutulmaz
+def test_fest_participant_workbook_parsing():
+    import io
+    import openpyxl
+    from routers.aifest import hash_id, parse_participant_workbook
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["AI FEST'26 Katılımcı Listesi"])
+    sheet.append(["#", "Ad Soyad", "TC / Okul No", "GSM", "Email", "Tip (Öğrenci/Misafir)", "Durum"])
+    sheet.append([1, "AYŞE YILMAZ", 21927451, "0555 123 4567", "Ayse@X.com", "Öğrenci", "Asil"])
+    sheet.append([2, "mehmet kaya", "12345678901", 5321112233.0, None, "Misafir", "Yedek"])
+    sheet.append([3, "Tekrar Eden", 21927451, "05330000000", None, None, None])
+    sheet.append([4, "Telefonsuz", 22222222, "", None, None, None])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+
+    records, summary = parse_participant_workbook(buffer.getvalue())
+    by_tail = {r["id_tail"]: r for r in records}
+
+    assert set(by_tail) == {"451", "901"}
+    assert summary["duplicates"] == 1 and summary["skipped_invalid"] == 1
+    assert by_tail["451"]["full_name"] == "Ayşe Yılmaz"
+    assert by_tail["451"]["phone_last4"] == "4567"
+    assert by_tail["901"]["phone_last4"] == "2233"  # Excel'de sayı (float) olarak gelen telefon
+    assert by_tail["451"]["id_hash"] == hash_id("21927451")
+    assert all("21927451" not in str(v) for v in by_tail["451"].values())

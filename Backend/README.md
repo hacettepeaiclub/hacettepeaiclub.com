@@ -80,6 +80,7 @@ pytest
 | AI FEST Paydaşları | `/stakeholders` | |
 | E-Bülten | `/newsletter` | |
 | Üye Listesi | `/members` | `POST /members/verify` herkese açıktır (dakikada 30 istek) ve yalnızca "aktif üye mi + ad soyad" döner; listeleme ve Excel yükleme JWT ister |
+| AI FEST'26 Yoklama / Çekiliş | `/aifest` | `POST /aifest/checkin` herkese açıktır; katılımcı Excel'i, oturum kodları, çekiliş ve dışa aktarma JWT ister |
 | Kimlik Doğrulama | `/auth`, `/users` | |
 | Görsel Yükleme | `/uploads/image` | |
 
@@ -102,3 +103,25 @@ ABDULKADİR CEZLAN        abdulkadircezlan25
 Yükleme listeyi **tam senkronize** eder: dosyada olmayan üyeler silinmez,
 `is_active = false` yapılır. Bu yüzden yanlış dosya yüklenirse doğru dosyayı
 tekrar yüklemek eski hâle döndürür. Telefon numarası sütunu hiç okunmaz.
+
+## AI FEST'26 — oturum yoklaması ve çekiliş
+
+`routers/aifest.py` · tablolar: `fest_participant`, `fest_session`, `fest_checkin`,
+`fest_raffle_winner` (göç: `b5c8e2f4a1d7`). Arayüz AI Fest sitesindedir
+(`aifest.hacettepeaiclub.com` reposu: `/yonetim/`, `/cekilis/`, ana sayfada *Yoklama Ver*);
+giriş bu sitenin admin hesaplarıyla yapılır.
+
+- **Excel:** Etkinlik kayıt sisteminin katılımcı listesi değiştirilmeden yüklenir
+  (`Ad Soyad`, `TC / Okul No`, `GSM` zorunlu; `Email`, `Tip`, `Durum` okunur). Tam senkronize
+  edilir; dosyada olmayanlar pasife alınır, yoklamaları korunur.
+- **Gizlilik:** TC/okul no düz metin saklanmaz (`SECRET_KEY` ile HMAC + son 3 hane), telefonun
+  yalnızca son 4 hanesi tutulur. ⚠️ Etkinlik süresince `SECRET_KEY` değiştirilmemeli; değişirse
+  Excel tekrar yüklenmeli.
+- **Oturumlar:** `FEST_SESSIONS` listesinden ilk istekte rastgele 4 haneli kodla oluşturulur
+  (ID'ler AI Fest sitesindeki `src/data/program.ts` ile aynı). `auto` modda yoklama başlangıçtan
+  10 dk önce açılır, bitişten 20 dk sonra kapanır; `open` / `closed` elle zorlar.
+- **Kaba kuvvet:** Salondaki herkes aynı IP'den çıkabildiği için IP sınırı cömerttir (600/dk);
+  aynı katılımcı için 10 yanlış koddan sonra 10 dk kilit (bellekte, tek uvicorn süreci varsayımı).
+- **CORS:** `main.py` içinde `https://aifest.hacettepeaiclub.com`, GitHub Pages kopyası ve
+  geliştirme adresleri izinlidir.
+

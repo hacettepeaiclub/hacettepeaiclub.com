@@ -1,5 +1,6 @@
 from typing import Optional
 from sqlmodel import SQLModel, Field
+from sqlalchemy import UniqueConstraint
 from datetime import datetime, timezone
 
 class User(SQLModel, table=True):
@@ -147,3 +148,73 @@ class NewsletterSubscriber(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(unique=True, index=True)
     subscribed_at: datetime = Field(default_factory=datetime.now)
+
+# ---------------------------------------------------------------------------
+#  AI FEST'26 — katılımcı listesi, oturum yoklaması ve sahne çekilişi
+#  (routers/aifest.py · göç: b5c8e2f4a1d7)
+# ---------------------------------------------------------------------------
+class FestParticipant(SQLModel, table=True):
+    """AI FEST'26 kayıtlı katılımcısı.
+
+    Kaynak, etkinlik kayıt sisteminden indirilen Excel dosyasıdır ve AI Fest
+    yönetim panelinden (aifest.hacettepeaiclub.com/yonetim/) yüklenir.
+
+    Gizlilik: TC / okul numarası düz metin SAKLANMAZ. Eşleşme, SECRET_KEY ile
+    alınmış HMAC özeti (`id_hash`) üzerinden yapılır; yalnızca son 3 hane
+    (çekilişte sahnede doğrulama için) tutulur. Telefonun da yalnızca son 4
+    hanesi (yoklama doğrulaması için) saklanır.
+    """
+    __tablename__ = "fest_participant"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    id_hash: str = Field(unique=True, index=True)
+    id_tail: str
+    full_name: str
+    email: Optional[str] = Field(default=None)
+    phone_last4: str
+    # Excel'deki "Tip (Öğrenci/Misafir)" ve "Durum" (Asil/Yedek) sütunları
+    participant_type: Optional[str] = Field(default=None)
+    status: Optional[str] = Field(default=None)
+    # Son yüklenen listede olmayanlar silinmez (yoklama kayıtları bağlı), pasife alınır.
+    is_active: bool = Field(default=True)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class FestSession(SQLModel, table=True):
+    """Yoklama alınan bir oturum. ID'ler AI Fest sitesindeki program verisiyle
+    (src/data/program.ts) aynıdır: d1-s1 … d2-s6.
+
+    Saatler Europe/Istanbul yerel saati olarak, saat dilimi bilgisi olmadan saklanır.
+    `mode`: auto (saate göre açılır/kapanır) · open (elle açık) · closed (elle kapalı)
+    """
+    __tablename__ = "fest_session"
+
+    id: str = Field(primary_key=True)
+    title: str
+    starts_at: datetime
+    ends_at: datetime
+    code: str
+    mode: str = Field(default="auto")
+    order_index: int = Field(default=0)
+
+
+class FestCheckIn(SQLModel, table=True):
+    """Bir katılımcının bir oturuma verdiği yoklama (oturum başına bir kez)."""
+    __tablename__ = "fest_checkin"
+    __table_args__ = (UniqueConstraint("session_id", "participant_id", name="uq_fest_checkin_session_participant"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: str = Field(foreign_key="fest_session.id", index=True, ondelete="CASCADE")
+    participant_id: int = Field(foreign_key="fest_participant.id", index=True, ondelete="CASCADE")
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class FestRaffleWinner(SQLModel, table=True):
+    """Sahne çekilişi kazananı. İptal edilen kazanan silinmez, `is_void` olur."""
+    __tablename__ = "fest_raffle_winner"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: str = Field(foreign_key="fest_session.id", index=True, ondelete="CASCADE")
+    participant_id: int = Field(foreign_key="fest_participant.id", ondelete="CASCADE")
+    created_at: datetime = Field(default_factory=datetime.now)
+    is_void: bool = Field(default=False)

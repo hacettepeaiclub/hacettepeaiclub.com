@@ -1,5 +1,5 @@
 from routers import (events, projects, sponsors, sponsor_categories, stakeholders, settings, board_members,
-                     announcements, auth, users, uploads, newsletter, members)
+                     announcements, auth, users, uploads, newsletter, members, aifest)
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from sqlmodel import SQLModel
@@ -96,7 +96,12 @@ origins = [
     "https://hacettepeaiclub.com",
     "https://www.hacettepeaiclub.com",
     "http://127.0.0.1:5500",  # Senin VS Code Live Server adresin
-    "http://localhost:5500"   # Alternatif adres
+    "http://localhost:5500",  # Alternatif adres
+    # AI FEST'26 sitesi (yoklama, /cekilis/ ve /yonetim/ sayfaları)
+    "https://aifest.hacettepeaiclub.com",
+    "https://hacettepeaiclub.github.io",  # AI Fest sitesinin GitHub Pages kopyası
+    "http://localhost:5173",  # AI Fest Vite geliştirme sunucusu
+    "http://localhost:4173",  # AI Fest vite preview
 ]
 
 app.add_middleware(
@@ -105,6 +110,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],  # GET, POST, PUT, DELETE vb. tüm metodlara izin ver
     allow_headers=["*"],  # Tüm isteklere (Header) izin ver
+    expose_headers=["Content-Disposition"],  # AI Fest Excel dışa aktarımında dosya adı okunabilsin
 )
 
 # Rotaları (Router) uygulamaya bağlama
@@ -122,6 +128,7 @@ app.include_router(users.router)
 app.include_router(uploads.router)  # <-- RESİM YÜKLEME ROTASINI BURAYA EKLEDİK
 app.include_router(newsletter.router)
 app.include_router(members.router)  # Üye listesi + indirim sayfası doğrulaması
+app.include_router(aifest.router)   # AI FEST'26 katılımcı listesi, oturum yoklaması ve çekiliş
 
 @app.get("/")
 async def root():

@@ -68,15 +68,15 @@ FEST_SESSIONS = [
     ("d1-s1", "2026-11-03", "10:00", "10:45", "1. Gün · 1. Oturum — Merve Benlikaş Demirbağ (Ford Otosan)"),
     ("d1-s2", "2026-11-03", "11:00", "11:45", "1. Gün · 2. Oturum — Bahar Serçin Halefoğlu (ALSE Data)"),
     ("d1-s3", "2026-11-03", "12:30", "13:15", "1. Gün · 3. Oturum — TUSAŞ Oturumu"),
-    ("d1-s4", "2026-11-03", "13:30", "14:15", "1. Gün · 4. Oturum — Dr. Fatih Hattatoğlu (Wise Maple)"),
-    ("d1-s5", "2026-11-03", "14:45", "15:30", "1. Gün · 5. Oturum — Burak Tunca (PayTR)"),
-    ("d1-s6", "2026-11-03", "15:45", "16:30", "1. Gün · 6. Oturum"),
-    ("d2-s1", "2026-11-04", "10:00", "10:45", "2. Gün · 1. Oturum — Çağdaş Hakan Aladağ"),
+    ("d1-s4", "2026-11-03", "13:30", "14:15", "1. Gün · 4. Oturum — Fatih Hattatoğlu (Wise Maple)"),
+    ("d1-s5", "2026-11-03", "14:45", "15:30", "1. Gün · 5. Oturum — Yakında açıklanacak"),
+    ("d1-s6", "2026-11-03", "15:45", "16:30", "1. Gün · 6. Oturum — Prof. Dr. Süleyman Tosun (Yapay Zeka Odaklı Yonga Tasarımı)"),
+    ("d2-s1", "2026-11-04", "10:00", "10:45", "2. Gün · 1. Oturum — Prof. Dr. Çağdaş Hakan Aladağ"),
     ("d2-s2", "2026-11-04", "11:00", "11:45", "2. Gün · 2. Oturum — Ata Seren & Azra Melis Ertan (HAVELSAN & Trendyol)"),
-    ("d2-s3", "2026-11-04", "12:30", "13:15", "2. Gün · 3. Oturum — ASELSAN Oturumu"),
+    ("d2-s3", "2026-11-04", "12:30", "13:15", "2. Gün · 3. Oturum — Serhat Özcan (ASELSAN Oturumu)"),
     ("d2-s4", "2026-11-04", "13:30", "14:15", "2. Gün · 4. Oturum — Ege Mert Gülderen (DeePix)"),
     ("d2-s5", "2026-11-04", "14:45", "15:30", "2. Gün · 5. Oturum — Aytaç Mestçi (MarkeFront)"),
-    ("d2-s6", "2026-11-04", "15:45", "16:30", "2. Gün · 6. Oturum"),
+    ("d2-s6", "2026-11-04", "15:45", "16:30", "2. Gün · 6. Oturum — Burak Tunca (PayTR)"),
 ]
 
 SESSION_MODES = {"auto", "open", "closed"}
@@ -119,15 +119,24 @@ def random_code() -> str:
 
 
 async def ensure_sessions(session: AsyncSession) -> None:
-    """Programdaki oturumlar veritabanında yoksa (rastgele kodla) oluşturur."""
-    existing = set((await session.execute(select(FestSession.id))).scalars().all())
-    missing = [s for s in FEST_SESSIONS if s[0] not in existing]
-    if not missing:
-        return
+    """Programdaki oturumlar veritabanında yoksa (rastgele kodla) oluşturur.
+
+    Var olan oturumların yalnızca başlığı FEST_SESSIONS ile eşitlenir (program
+    değişince panel ve Excel güncel kalsın); kod, mod ve saatler panelden
+    yönetildiği için dokunulmaz.
+    """
+    existing = {s.id: s for s in (await session.execute(select(FestSession))).scalars().all()}
+    changed = False
 
     for order, (sid, day, start, end, title) in enumerate(FEST_SESSIONS):
-        if sid in existing:
+        current = existing.get(sid)
+        if current is not None:
+            if current.title != title:
+                current.title = title
+                session.add(current)
+                changed = True
             continue
+        changed = True
         session.add(FestSession(
             id=sid,
             title=title,
@@ -137,6 +146,8 @@ async def ensure_sessions(session: AsyncSession) -> None:
             mode="auto",
             order_index=order,
         ))
+    if not changed:
+        return
     try:
         await session.commit()
     except IntegrityError:

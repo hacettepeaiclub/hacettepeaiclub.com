@@ -138,6 +138,10 @@ async def test_aifest_routes_require_auth(async_client: AsyncClient):
     for path in ["/aifest/stats", "/aifest/sessions", "/aifest/raffle/d1-s1", "/aifest/export"]:
         assert (await async_client.get(path)).status_code == 401
 
+    # Site ayarı: okuma herkese açık (rota kayıtlı), yazma yetki ister
+    assert "/aifest/config" in paths
+    assert (await async_client.put("/aifest/config", json={"checkin_button": True})).status_code == 401
+
 
 # 11. TEST: Katılımcı Excel'i — başlık satırı aranır, numaralar normalleşir, TC düz metin tutulmaz
 def test_fest_participant_workbook_parsing():

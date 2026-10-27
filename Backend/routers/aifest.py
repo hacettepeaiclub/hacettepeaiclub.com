@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from database import get_session
-from models import FestCheckIn, FestParticipant, FestRaffleWinner, FestSession
+from models import FestCheckIn, FestParticipant, FestRaffleWinner, FestSession, SiteSetting
 from routers.members import ALLOWED_EXTENSIONS, MAX_FILE_SIZE, MAX_FILE_SIZE_MB, tr_lower, tr_title
 from security import SECRET_KEY, get_current_user, limiter
 
@@ -682,3 +682,57 @@ async def export_attendance(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+#  Site ayarları (AI Fest sitesi)
+# ---------------------------------------------------------------------------
+#: Ana sayfada (mobil) "Yoklamaya Gir" butonu. Değer SiteSetting tablosunda tutulur
+#: (göç gerektirmez); /yonetim/ panelindeki anahtarla açılıp kapanır.
+CHECKIN_BUTTON_KEY = "aifest_checkin_button"
+
+
+class FestConfig(BaseModel):
+    checkin_button: bool
+
+
+async def _get_flag(session: AsyncSession, key: str) -> bool:
+    setting = (await session.execute(select(SiteSetting).where(SiteSetting.key == key))).scalar_one_or_none()
+    return bool(setting and setting.value == "1")
+
+
+@router.get("/config", response_model=FestConfig)
+async def get_config(session: AsyncSession = Depends(get_session)):
+    """Herkese açık: AI Fest sitesinin anlık ayarları."""
+    return FestConfig(checkin_button=await _get_flag(session, CHECKIN_BUTTON_KEY))
+
+
+@router.put("/config", response_model=FestConfig)
+async def update_config(
+        data: FestConfig,
+        session: AsyncSession = Depends(get_session),
+        current_user: str = Depends(get_current_user)
+):
+    setting = (await session.execute(
+        select(SiteSetting).where(SiteSetting.key == CHECKIN_BUTTON_KEY)
+    )).scalar_one_or_none()
+    if setting is None:
+        setting = SiteSetting(
+            key=CHECKIN_BUTTON_KEY,
+            value="0",
+            description="AI Fest ana sayfası: mobilde 'Yoklamaya Gir' butonu (1 = açık)",
+        )
+    setting.value = "1" if data.checkin_button else "0"
+    session.add(setting)
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Aynı anda iki kez oluşturulmaya çalışıldı; mevcut kaydı güncelle.
+        await session.rollback()
+        setting = (await session.execute(
+            select(SiteSetting).where(SiteSetting.key == CHECKIN_BUTTON_KEY)
+        )).scalar_one()
+        setting.value = "1" if data.checkin_button else "0"
+        session.add(setting)
+        await session.commit()
+    return FestConfig(checkin_button=data.checkin_button)

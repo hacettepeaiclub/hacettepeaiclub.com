@@ -69,7 +69,7 @@ FEST_SESSIONS = [
     ("d1-s2", "2026-11-03", "11:00", "11:45", "1. Gün · 2. Oturum — Bahar Serçin Halefoğlu (ALSE Data)"),
     ("d1-s3", "2026-11-03", "12:30", "13:15", "1. Gün · 3. Oturum — TUSAŞ Oturumu"),
     ("d1-s4", "2026-11-03", "13:30", "14:15", "1. Gün · 4. Oturum — Fatih Hattatoğlu (Wise Maple)"),
-    ("d1-s5", "2026-11-03", "14:45", "15:30", "1. Gün · 5. Oturum — Yakında açıklanacak"),
+    ("d1-s5", "2026-11-03", "14:45", "15:30", "1. Gün · 5. Oturum — Dr. Sinan Onur Altınuç (Prometheus AI)"),
     ("d1-s6", "2026-11-03", "15:45", "16:30", "1. Gün · 6. Oturum — Prof. Dr. Süleyman Tosun (Yapay Zeka Odaklı Yonga Tasarımı)"),
     ("d2-s1", "2026-11-04", "10:00", "10:45", "2. Gün · 1. Oturum — Prof. Dr. Çağdaş Hakan Aladağ"),
     ("d2-s2", "2026-11-04", "11:00", "11:45", "2. Gün · 2. Oturum — Ata Seren & Azra Melis Ertan (HAVELSAN & Trendyol)"),
